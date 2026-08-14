@@ -18,6 +18,34 @@ export function normalizeVietnamPhone(input: string) {
 
 export const normalizedPhoneSchema = z.string().trim().transform(toVietnamLocalPhone).pipe(vietnamPhoneSchema);
 
+export type AppRole = "customer" | "staff" | "admin";
+
+export function getRoleLandingPath(role: string) {
+  if (role === "admin") return "/admin";
+  if (role === "staff") return "/staff";
+  return "/tai-khoan";
+}
+
+function isInternalRelativePath(value: string) {
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\\u0000-\\u001f]/.test(value)) return false;
+  try {
+    const parsed = new URL(value, "https://cas-hoa.internal");
+    return parsed.origin === "https://cas-hoa.internal";
+  } catch {
+    return false;
+  }
+}
+
+export function getSafeRoleRedirect(role: string, next?: string | null) {
+  const fallback = getRoleLandingPath(role);
+  if (!next || !isInternalRelativePath(next)) return fallback;
+
+  if (role === "admin" && (next === "/admin" || next.startsWith("/admin/") || next === "/staff" || next.startsWith("/staff/"))) return next;
+  if (role === "staff" && (next === "/staff" || next.startsWith("/staff/"))) return next;
+  if (role === "customer" && (next === "/tai-khoan" || next.startsWith("/tai-khoan/"))) return next;
+  return fallback;
+}
+
 /**
  * Maps a canonical local phone to an opaque, deterministic Auth email.
  * This helper is server-only because it reads AUTH_INTERNAL_EMAIL_SECRET.

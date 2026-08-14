@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { normalizedPhoneSchema, toInternalAuthEmail } from "@/lib/auth";
+import { getCurrentProfile, getSafeRoleRedirect, normalizedPhoneSchema, toInternalAuthEmail } from "@/lib/auth";
 
-const loginSchema = z.object({ phone: normalizedPhoneSchema, password: z.string().min(1).max(128) });
+const loginSchema = z.object({ phone: normalizedPhoneSchema, password: z.string().min(1).max(128), next: z.string().trim().max(512).optional() });
 
 export async function POST(request: Request) {
   try {
@@ -22,7 +22,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Số điện thoại hoặc mật khẩu không đúng." }, { status: 401 });
     }
     if (!data.user) return NextResponse.json({ error: "Số điện thoại hoặc mật khẩu không đúng." }, { status: 401 });
-    return NextResponse.json({ ok: true, user: { id: data.user.id, phone: parsed.data.phone } });
+
+    const current = await getCurrentProfile();
+    if (!current || !current.profile.is_active) {
+      await supabase.auth.signOut();
+      return NextResponse.json({ error: "Tài khoản hiện không hoạt động. Vui lòng liên hệ CÁ'S HOA." }, { status: 403 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      user: { id: data.user.id, phone: parsed.data.phone },
+      profile: current.profile,
+      redirectTo: getSafeRoleRedirect(current.profile.role, parsed.data.next),
+    });
   } catch (error) {
     console.error("[auth.login] Unexpected server error", error);
     return NextResponse.json({ error: "Dịch vụ tài khoản tạm thời không khả dụng." }, { status: 503 });

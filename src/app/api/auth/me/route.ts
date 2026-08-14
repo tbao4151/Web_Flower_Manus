@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, getSafeRoleRedirect } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const current = await getCurrentProfile();
     if (!current) return NextResponse.json({ user: null });
-    return NextResponse.json({ user: { id: current.user.id, phone: current.profile.phone }, profile: current.profile });
+    const next = new URL(request.url).searchParams.get("next");
+    return NextResponse.json({ user: { id: current.user.id, phone: current.profile.phone }, profile: current.profile, redirectTo: current.profile.is_active ? getSafeRoleRedirect(current.profile.role, next) : null });
   } catch {
     return NextResponse.json({ user: null }, { status: 200 });
   }

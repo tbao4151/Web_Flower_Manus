@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import FloatingSocialContactWidget from "@/components/FloatingSocialContactWidget";
 
 export const metadata: Metadata = {
   title: "CÁ'S HOA — Hoa cho những điều khó nói",
@@ -12,5 +13,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body>{children}</body></html>;
+  return <html lang="vi"><body>{children}<FloatingSocialContactWidget /></body></html>;
 }
