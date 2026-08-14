@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { normalizedPhoneSchema, toVietnamE164Phone } from "@/lib/auth";
+import { normalizedPhoneSchema, toSupabaseAuthPhone } from "@/lib/auth";
 
 const signupSchema = z.object({
   phone: normalizedPhoneSchema,
@@ -12,6 +12,34 @@ const signupSchema = z.object({
   message: "Mật khẩu xác nhận không khớp.",
 });
 
+function signupErrorResponse(error: { code?: string; status?: number; message?: string }) {
+  console.error("[auth.signup] Supabase Auth error", {
+    code: error.code,
+    status: error.status,
+    message: error.message,
+  });
+
+  switch (error.code) {
+    case "phone_exists":
+    case "user_already_exists":
+      return NextResponse.json({ error: "Số điện thoại này đã được đăng ký." }, { status: 400 });
+    case "phone_provider_disabled":
+      return NextResponse.json({ error: "Đăng ký bằng số điện thoại hiện chưa được bật trên hệ thống." }, { status: 503 });
+    case "signup_disabled":
+      return NextResponse.json({ error: "Chức năng đăng ký đang tạm khóa." }, { status: 503 });
+    case "weak_password":
+      return NextResponse.json({ error: "Mật khẩu chưa đạt yêu cầu." }, { status: 400 });
+    case "over_request_rate_limit":
+      return NextResponse.json({ error: "Bạn đã thử quá nhiều lần. Vui lòng thử lại sau." }, { status: 429 });
+    case "validation_failed":
+      return NextResponse.json({ error: "Số điện thoại hoặc mật khẩu chưa hợp lệ." }, { status: 400 });
+    case "unexpected_failure":
+      return NextResponse.json({ error: "Dịch vụ tài khoản tạm thời không khả dụng." }, { status: 503 });
+    default:
+      return NextResponse.json({ error: "Không thể tạo tài khoản. Vui lòng kiểm tra thông tin và thử lại." }, { status: 400 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const parsed = signupSchema.safeParse(await request.json());
@@ -19,12 +47,20 @@ export async function POST(request: Request) {
       const firstIssue = parsed.error.issues[0];
       return NextResponse.json({ error: firstIssue?.message || "Thông tin đăng ký chưa hợp lệ." }, { status: 400 });
     }
+
     const { phone, password } = parsed.data;
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.auth.signUp({ phone: toVietnamE164Phone(phone), password });
-    if (error || !data.user) return NextResponse.json({ error: "Không thể tạo tài khoản. Số điện thoại có thể đã được sử dụng." }, { status: 400 });
+    const { data, error } = await supabase.auth.signUp({
+      phone: toSupabaseAuthPhone(phone),
+      password,
+    });
+
+    if (error) return signupErrorResponse(error);
+    if (!data.user) return NextResponse.json({ error: "Không thể tạo tài khoản. Vui lòng thử lại." }, { status: 503 });
+
     return NextResponse.json({ ok: true, user: { id: data.user.id, phone: data.user.phone } });
-  } catch {
+  } catch (error) {
+    console.error("[auth.signup] Unexpected server error", error);
     return NextResponse.json({ error: "Dịch vụ tài khoản tạm thời không khả dụng." }, { status: 503 });
   }
 }

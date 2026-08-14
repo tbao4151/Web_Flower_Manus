@@ -3,16 +3,21 @@ import { createSupabaseAdminClient, createSupabaseServerClient } from "./supabas
 
 export const vietnamPhoneSchema = z.string().regex(/^0\d{9}$/, "Số điện thoại phải gồm đúng 10 chữ số.");
 
-export function normalizeVietnamPhone(input: string) {
+export function toVietnamLocalPhone(input: string) {
   const compact = input.replace(/[\s().-]/g, "");
   if (compact.startsWith("+84")) return `0${compact.slice(3)}`;
   return compact;
 }
 
-export const normalizedPhoneSchema = z.string().trim().transform(normalizeVietnamPhone).pipe(vietnamPhoneSchema);
+/** @deprecated Use toVietnamLocalPhone for explicit local-format conversion. */
+export function normalizeVietnamPhone(input: string) {
+  return toVietnamLocalPhone(input);
+}
 
-export function toVietnamE164Phone(phone: string) {
-  const normalized = normalizeVietnamPhone(phone);
+export const normalizedPhoneSchema = z.string().trim().transform(toVietnamLocalPhone).pipe(vietnamPhoneSchema);
+
+export function toSupabaseAuthPhone(phone: string) {
+  const normalized = toVietnamLocalPhone(phone);
   return `+84${normalized.slice(1)}`;
 }
 
