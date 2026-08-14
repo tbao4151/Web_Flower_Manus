@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "./supabase-server";
 
-export const vietnamPhoneSchema = z.string().trim().regex(/^(0|\+84)\d{9}$/, "Số điện thoại Việt Nam không hợp lệ.");
+export const vietnamPhoneSchema = z.string().regex(/^0\d{9}$/, "Số điện thoại phải gồm đúng 10 chữ số.");
 
 export function normalizeVietnamPhone(input: string) {
   const compact = input.replace(/[\s().-]/g, "");
