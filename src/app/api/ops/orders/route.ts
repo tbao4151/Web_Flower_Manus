@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   const status = searchParams.get("status") || "all";
   try {
     const supabase = createSupabaseAdminClient();
-    let query = supabase.from("orders").select("id, order_code, recipient_name, recipient_phone, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, total_vnd, status, created_at, updated_at, order_items(product_name_snapshot, quantity, unit_price_vnd, line_total_vnd)", { count: "exact" }).order("created_at", { ascending: false });
+    let query = supabase.from("orders").select("id, order_code, recipient_name, recipient_phone, is_pickup, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, total_vnd, status, created_at, updated_at, order_items(product_name_snapshot, quantity, unit_price_vnd, line_total_vnd)", { count: "exact" }).order("created_at", { ascending: false });
     if (status !== "all" && statuses.includes(status as typeof statuses[number])) query = query.eq("status", status);
     if (search) query = query.or(`order_code.ilike.%${search}%,recipient_phone.ilike.%${search}%,recipient_name.ilike.%${search}%`);
     const from = (page - 1) * pageSize;

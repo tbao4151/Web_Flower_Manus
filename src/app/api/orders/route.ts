@@ -1,17 +1,30 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentUser, normalizeVietnamPhone, normalizedPhoneSchema } from "@/lib/auth";
+import { getCurrentUser, normalizedPhoneSchema } from "@/lib/auth";
+import { normalizeDeliveryTime } from "@/lib/delivery";
 import { createSupabaseAdminClient } from "@/lib/supabase-server";
 
 const checkoutSchema = z.object({
   recipientName: z.string().trim().min(2).max(100),
   recipientPhone: normalizedPhoneSchema,
-  address: z.string().trim().min(8).max(300),
+  isPickup: z.boolean().default(false),
+  address: z.string().trim().max(300).optional().default(""),
   deliveryDate: z.string().date(),
-  deliveryTime: z.string().trim().min(3).max(80),
+  deliveryTime: z.string().trim().min(1).max(80).transform((value, context) => {
+    const normalized = normalizeDeliveryTime(value);
+    if (!normalized) {
+      context.addIssue({ code: "custom", message: "Khung giờ chưa đúng định dạng." });
+      return z.NEVER;
+    }
+    return normalized;
+  }),
   cardMessage: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(500).optional().default(""),
+}).superRefine((value, context) => {
+  if (!value.isPickup && value.address.length < 8) {
+    context.addIssue({ code: "custom", path: ["address"], message: "Vui lòng nhập địa chỉ giao hoa." });
+  }
 });
 
 const orderSchema = z.object({
@@ -26,7 +39,12 @@ export async function POST(request: Request) {
   const idempotencyKey = request.headers.get("x-idempotency-key")?.trim();
   if (!idempotencyKey || idempotencyKey.length < 12) return NextResponse.json({ error: "Thiếu mã chống tạo trùng đơn hàng. Vui lòng thử lại." }, { status: 400 });
   const parsed = orderSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Thông tin nhận hoa chưa hợp lệ.", fields: parsed.error.flatten().fieldErrors }, { status: 400 });
+  if (!parsed.success) {
+    const fields = parsed.error.flatten().fieldErrors;
+    const hasTimeError = parsed.error.issues.some((issue) => issue.path.join(".") === "checkout.deliveryTime");
+    const error = hasTimeError ? "Khung giờ chưa đúng. Ví dụ hợp lệ: 14g, 14h, 13g-14h30 hoặc 13:00." : "Thông tin nhận hoa chưa hợp lệ.";
+    return NextResponse.json({ error, fields }, { status: 400 });
+  }
 
   try {
     const supabase = createSupabaseAdminClient();
@@ -52,7 +70,7 @@ export async function POST(request: Request) {
     const shippingVnd = 0;
     const totalVnd = subtotal;
     const orderCode = makeOrderCode();
-    const { recipientName, recipientPhone, address, deliveryDate, deliveryTime, cardMessage, note } = parsed.data.checkout;
+    const { recipientName, recipientPhone, isPickup, address, deliveryDate, deliveryTime, cardMessage, note } = parsed.data.checkout;
     const summary = [
       `CÁ'S HOA — ĐƠN ${orderCode}`,
       "Sản phẩm:",
@@ -61,8 +79,8 @@ export async function POST(request: Request) {
       "Giao hàng: Shop xác nhận sau",
       `Tổng tạm tính: ${formatVnd(totalVnd)}đ`,
       `Người nhận: ${recipientName} — ${recipientPhone}`,
-      `Địa chỉ: ${address}`,
-      `Giao ngày: ${deliveryDate}, ${deliveryTime}`,
+      isPickup ? "Nhận hoa: Tự tới lấy tại shop" : `Địa chỉ: ${address}`,
+      `Thời gian: ${deliveryDate}, ${deliveryTime}`,
       cardMessage ? `Thiệp: ${cardMessage}` : "",
       note ? `Ghi chú: ${note}` : "",
     ].filter(Boolean).join("\n");
@@ -75,7 +93,8 @@ export async function POST(request: Request) {
       customer_phone: null,
       recipient_name: recipientName,
       recipient_phone: recipientPhone,
-      delivery_address: address,
+      is_pickup: isPickup,
+      delivery_address: isPickup ? null : address,
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
       card_message: cardMessage,
@@ -113,7 +132,7 @@ export async function GET(request: Request) {
     const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { count } = await supabase.from("order_lookup_audit").select("id", { count: "exact", head: true }).eq("order_code", parsed.data.orderCode).eq("phone_hash", phoneHash).gte("created_at", since);
     if ((count ?? 0) >= 10) return NextResponse.json({ error: "Bạn đã thử quá nhiều lần. Vui lòng chờ ít phút rồi thử lại." }, { status: 429 });
-    const { data: order } = await supabase.from("orders").select("order_code, recipient_name, recipient_phone, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, total_vnd, status, created_at, order_items(product_name_snapshot, product_sku_snapshot, unit_price_vnd, quantity, line_total_vnd)").eq("order_code", parsed.data.orderCode).eq("recipient_phone", parsed.data.recipientPhone).maybeSingle();
+    const { data: order } = await supabase.from("orders").select("order_code, recipient_name, recipient_phone, is_pickup, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, total_vnd, status, created_at, order_items(product_name_snapshot, product_sku_snapshot, unit_price_vnd, quantity, line_total_vnd)").eq("order_code", parsed.data.orderCode).eq("recipient_phone", parsed.data.recipientPhone).maybeSingle();
     await supabase.from("order_lookup_audit").insert({ order_code: parsed.data.orderCode, phone_hash: phoneHash, succeeded: Boolean(order) });
     if (!order) return NextResponse.json({ error: "Không tìm thấy đơn hàng phù hợp." }, { status: 404 });
     return NextResponse.json({ order });
