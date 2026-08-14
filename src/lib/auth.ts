@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "./supabase-server";
 
@@ -6,6 +7,7 @@ export const vietnamPhoneSchema = z.string().regex(/^0\d{9}$/, "Số điện tho
 export function toVietnamLocalPhone(input: string) {
   const compact = input.replace(/[\s().-]/g, "");
   if (compact.startsWith("+84")) return `0${compact.slice(3)}`;
+  if (compact.startsWith("84") && compact.length === 11) return `0${compact.slice(2)}`;
   return compact;
 }
 
@@ -16,9 +18,24 @@ export function normalizeVietnamPhone(input: string) {
 
 export const normalizedPhoneSchema = z.string().trim().transform(toVietnamLocalPhone).pipe(vietnamPhoneSchema);
 
-export function toSupabaseAuthPhone(phone: string) {
+/**
+ * Maps a canonical local phone to an opaque, deterministic Auth email.
+ * This helper is server-only because it reads AUTH_INTERNAL_EMAIL_SECRET.
+ */
+export function toInternalAuthEmail(phone: string) {
+  const secret = process.env.AUTH_INTERNAL_EMAIL_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error("AUTH_INTERNAL_EMAIL_SECRET is missing or too short.");
+  }
+
+  const domain = (process.env.AUTH_INTERNAL_EMAIL_DOMAIN || "auth.cas-hoa.local").trim().toLowerCase();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
+    throw new Error("AUTH_INTERNAL_EMAIL_DOMAIN is invalid.");
+  }
+
   const normalized = toVietnamLocalPhone(phone);
-  return `+84${normalized.slice(1)}`;
+  const digest = createHmac("sha256", secret).update(normalized, "utf8").digest("hex");
+  return `u-${digest}@${domain}`;
 }
 
 export async function getCurrentUser() {

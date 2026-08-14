@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { normalizedPhoneSchema, toSupabaseAuthPhone } from "@/lib/auth";
+import { normalizedPhoneSchema, toInternalAuthEmail } from "@/lib/auth";
 
 const signupSchema = z.object({
   phone: normalizedPhoneSchema,
@@ -20,11 +20,9 @@ function signupErrorResponse(error: { code?: string; status?: number; message?: 
   });
 
   switch (error.code) {
-    case "phone_exists":
+    case "email_exists":
     case "user_already_exists":
       return NextResponse.json({ error: "Số điện thoại này đã được đăng ký." }, { status: 400 });
-    case "phone_provider_disabled":
-      return NextResponse.json({ error: "Đăng ký bằng số điện thoại hiện chưa được bật trên hệ thống." }, { status: 503 });
     case "signup_disabled":
       return NextResponse.json({ error: "Chức năng đăng ký đang tạm khóa." }, { status: 503 });
     case "weak_password":
@@ -49,16 +47,20 @@ export async function POST(request: Request) {
     }
 
     const { phone, password } = parsed.data;
+    const email = toInternalAuthEmail(phone);
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.signUp({
-      phone: toSupabaseAuthPhone(phone),
+      email,
       password,
+      options: {
+        data: { phone },
+      },
     });
 
     if (error) return signupErrorResponse(error);
     if (!data.user) return NextResponse.json({ error: "Không thể tạo tài khoản. Vui lòng thử lại." }, { status: 503 });
 
-    return NextResponse.json({ ok: true, user: { id: data.user.id, phone: data.user.phone } });
+    return NextResponse.json({ ok: true, user: { id: data.user.id, phone } });
   } catch (error) {
     console.error("[auth.signup] Unexpected server error", error);
     return NextResponse.json({ error: "Dịch vụ tài khoản tạm thời không khả dụng." }, { status: 503 });

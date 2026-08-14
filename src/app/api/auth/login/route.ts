@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { normalizedPhoneSchema, toSupabaseAuthPhone } from "@/lib/auth";
+import { normalizedPhoneSchema, toInternalAuthEmail } from "@/lib/auth";
 
 const loginSchema = z.object({ phone: normalizedPhoneSchema, password: z.string().min(1).max(128) });
 
@@ -9,8 +9,10 @@ export async function POST(request: Request) {
   try {
     const parsed = loginSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: "Số điện thoại hoặc mật khẩu không đúng." }, { status: 401 });
+
+    const email = toInternalAuthEmail(parsed.data.phone);
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.auth.signInWithPassword({ phone: toSupabaseAuthPhone(parsed.data.phone), password: parsed.data.password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: parsed.data.password });
     if (error) {
       console.error("[auth.login] Supabase Auth error", {
         code: error.code,
@@ -20,7 +22,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Số điện thoại hoặc mật khẩu không đúng." }, { status: 401 });
     }
     if (!data.user) return NextResponse.json({ error: "Số điện thoại hoặc mật khẩu không đúng." }, { status: 401 });
-    return NextResponse.json({ ok: true, user: { id: data.user.id, phone: data.user.phone } });
+    return NextResponse.json({ ok: true, user: { id: data.user.id, phone: parsed.data.phone } });
   } catch (error) {
     console.error("[auth.login] Unexpected server error", error);
     return NextResponse.json({ error: "Dịch vụ tài khoản tạm thời không khả dụng." }, { status: 503 });
