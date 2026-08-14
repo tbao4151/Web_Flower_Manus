@@ -11,6 +11,11 @@ export function normalizeVietnamPhone(input: string) {
 
 export const normalizedPhoneSchema = z.string().trim().transform(normalizeVietnamPhone).pipe(vietnamPhoneSchema);
 
+export function toVietnamE164Phone(phone: string) {
+  const normalized = normalizeVietnamPhone(phone);
+  return `+84${normalized.slice(1)}`;
+}
+
 export async function getCurrentUser() {
   const supabase = await createSupabaseServerClient();
   const { data: { user }, error } = await supabase.auth.getUser();

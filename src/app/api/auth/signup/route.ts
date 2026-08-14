@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { normalizedPhoneSchema } from "@/lib/auth";
+import { normalizedPhoneSchema, toVietnamE164Phone } from "@/lib/auth";
 
 const signupSchema = z.object({
   phone: normalizedPhoneSchema,
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     }
     const { phone, password } = parsed.data;
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.auth.signUp({ phone, password });
+    const { data, error } = await supabase.auth.signUp({ phone: toVietnamE164Phone(phone), password });
     if (error || !data.user) return NextResponse.json({ error: "Không thể tạo tài khoản. Số điện thoại có thể đã được sử dụng." }, { status: 400 });
     return NextResponse.json({ ok: true, user: { id: data.user.id, phone: data.user.phone } });
   } catch {
