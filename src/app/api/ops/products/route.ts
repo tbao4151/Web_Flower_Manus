@@ -79,9 +79,16 @@ export async function POST(request: Request) {
   if (!parsed.success || (parsed.data.salePriceVnd != null && parsed.data.salePriceVnd > parsed.data.priceVnd)) return NextResponse.json({ error: "Thông tin sản phẩm chưa hợp lệ." }, { status: 400 });
   if (parsed.data.status === "published") return NextResponse.json({ error: "Hãy lưu sản phẩm nháp, tải ít nhất một ảnh rồi mới bật hiển thị." }, { status: 400 });
   const { categoryIds, toneIds, occasionIds, ...product } = parsed.data;
+  const normalizedProduct = {
+    ...product,
+    sku: product.sku.normalize("NFC"),
+    name: product.name.normalize("NFC"),
+    description: product.description.normalize("NFC"),
+    composition: product.composition == null ? product.composition : product.composition.normalize("NFC"),
+  };
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase.from("products").insert({ sku: product.sku, slug: product.slug, name: product.name, product_type: product.productType, price_vnd: product.priceVnd, sale_price_vnd: product.salePriceVnd ?? null, description: product.description, composition: product.composition ?? null, featured: product.featured, status: product.status }).select(adminProductSelect).single();
+    const { data, error } = await supabase.from("products").insert({ sku: normalizedProduct.sku, slug: normalizedProduct.slug, name: normalizedProduct.name, product_type: normalizedProduct.productType, price_vnd: normalizedProduct.priceVnd, sale_price_vnd: normalizedProduct.salePriceVnd ?? null, description: normalizedProduct.description, composition: normalizedProduct.composition ?? null, featured: normalizedProduct.featured, status: normalizedProduct.status }).select(adminProductSelect).single();
     if (error || !data) return NextResponse.json({ error: "Không thể tạo sản phẩm. SKU hoặc slug có thể đã tồn tại." }, { status: 409 });
     await syncRelations(data.id, { categoryIds, toneIds, occasionIds });
     return NextResponse.json({ product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) }, { status: 201 });
@@ -100,7 +107,14 @@ export async function PATCH(request: Request) {
   if (currentError || !current) return NextResponse.json({ error: "Không tìm thấy sản phẩm." }, { status: 404 });
   if (parsed.data.status === "published" && !(await hasCoverImage(body.id))) return NextResponse.json({ error: "Không thể hiển thị sản phẩm khi chưa có ảnh cover." }, { status: 400 });
   const { categoryIds, toneIds, occasionIds, productType, priceVnd, salePriceVnd, status, ...rest } = parsed.data;
-  const values: Record<string, unknown> = { ...rest, updated_at: new Date().toISOString() };
+  const values: Record<string, unknown> = {
+    ...rest,
+    ...(typeof rest.sku === "string" ? { sku: rest.sku.normalize("NFC") } : {}),
+    ...(typeof rest.name === "string" ? { name: rest.name.normalize("NFC") } : {}),
+    ...(typeof rest.description === "string" ? { description: rest.description.normalize("NFC") } : {}),
+    ...(typeof rest.composition === "string" ? { composition: rest.composition.normalize("NFC") } : {}),
+    updated_at: new Date().toISOString(),
+  };
   if (productType !== undefined) values.product_type = productType;
   if (priceVnd !== undefined) values.price_vnd = priceVnd;
   if (salePriceVnd !== undefined) values.sale_price_vnd = salePriceVnd;

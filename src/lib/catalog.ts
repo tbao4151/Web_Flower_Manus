@@ -72,7 +72,7 @@ export function mapCatalogProduct(
     id: row.id,
     sku: row.sku,
     slug: row.slug,
-    name: row.name,
+    name: row.name.normalize("NFC"),
     type: row.product_type,
     price: row.price_vnd,
     ...(row.sale_price_vnd != null ? { salePrice: row.sale_price_vnd } : {}),
