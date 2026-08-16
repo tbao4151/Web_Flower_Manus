@@ -112,14 +112,14 @@ function SocialLink({ href, label, icon }: { href: string; label: string; icon: 
     <a
       href={href}
       target="_blank"
-      rel="noreferrer"
+      rel="noopener noreferrer"
       className="group relative flex min-h-11 min-w-11 items-center gap-1.5 rounded-xl px-2.5 text-xs font-bold text-foreground transition hover:bg-surface-muted focus-visible:outline-none"
-      aria-label={`Mở ${label} của CÁ'S HOA`}
-      title={label}
+      aria-label={label === "Instagram" ? "Mở Instagram DM của CÁ'S HOA" : `Mở ${label} của CÁ'S HOA`}
+      title={label === "Instagram" ? "Nhắn Instagram DM" : label}
     >
       <span className="text-primary">{icon}</span>
       <span>{label}</span>
-      <span className="pointer-events-none absolute bottom-full left-0 mb-2 hidden whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100 md:block">Mở {label}</span>
+      <span className="pointer-events-none absolute bottom-full left-0 mb-2 hidden whitespace-nowrap rounded-lg bg-foreground px-2 py-1 text-[11px] font-semibold text-background opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100 md:block">{label === "Instagram" ? "Nhắn Instagram DM" : `Mở ${label}`}</span>
     </a>
   );
 }

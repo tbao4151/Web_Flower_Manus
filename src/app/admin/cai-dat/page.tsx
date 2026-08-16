@@ -73,15 +73,15 @@ export default function AdminSettingsPage() {
 
           <div className="mt-8 border-t border-border pt-6">
             <p className="text-sm font-bold">Floating Social Contact Widget</p>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">Hiển thị nút liên hệ Instagram và Zalo ở góc dưới storefront. Nếu URL để trống, nút tương ứng sẽ không hiển thị.</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">Hiển thị nút liên hệ Instagram DM trước, sau đó đến Zalo ở góc dưới storefront. Nếu URL để trống, nút tương ứng sẽ không hiển thị.</p>
             <label className="mt-4 flex items-start gap-3 rounded-2xl border border-border bg-background p-4 text-sm font-semibold">
               <input type="checkbox" checked={socialEnabled} onChange={(event) => setSocialEnabled(event.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--primary)]" />
               <span><span className="block">Bật Floating Social Contact Widget</span><span className="mt-1 block text-xs font-normal leading-5 text-muted-foreground">Khách có thể đóng widget trong một phiên trình duyệt; phiên mới sẽ hiển thị lại.</span></span>
             </label>
             <label className="mt-4 block text-sm font-semibold">
-              Instagram URL
-              <input value={instagramUrl} onChange={(event) => setInstagramUrl(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-4 text-sm" placeholder="https://www.instagram.com/ten-shop/" inputMode="url" />
-              <span className="mt-1 block text-xs font-normal text-muted-foreground">Chỉ nhận URL HTTPS của Instagram.</span>
+              Instagram DM URL
+              <input value={instagramUrl} onChange={(event) => setInstagramUrl(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-4 text-sm" placeholder="https://ig.me/m/ten-shop" inputMode="url" />
+              <span className="mt-1 block text-xs font-normal text-muted-foreground">Ưu tiên link DM dạng `https://ig.me/m/ten-shop`; URL profile Instagram cũng sẽ được chuẩn hóa sang luồng DM khi có thể.</span>
             </label>
             <label className="mt-4 block text-sm font-semibold">
               Zalo URL / số điện thoại
