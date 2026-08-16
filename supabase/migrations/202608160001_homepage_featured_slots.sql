@@ -61,14 +61,14 @@ begin
 
   -- Clear all slots first so an admin can swap positions atomically without
   -- colliding with the unique partial index.
-  update public.products
+  update public.products as p
   set featured_position = null,
       updated_at = now()
-  where featured_position is not null;
+  where p.featured_position is not null;
 
-  update public.products set featured_position = 1, updated_at = now() where id = position_one;
-  update public.products set featured_position = 2, updated_at = now() where id = position_two;
-  update public.products set featured_position = 3, updated_at = now() where id = position_three;
+  update public.products as p set featured_position = 1, updated_at = now() where p.id = position_one;
+  update public.products as p set featured_position = 2, updated_at = now() where p.id = position_two;
+  update public.products as p set featured_position = 3, updated_at = now() where p.id = position_three;
 
   return query
     select p.featured_position, p.id
