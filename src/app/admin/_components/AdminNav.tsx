@@ -1,5 +1,20 @@
 import Link from "next/link";
 
+const links = [
+  ["/admin", "Tổng quan"],
+  ["/admin/orders", "Đơn hàng"],
+  ["/admin/san-pham", "Sản phẩm & hình ảnh"],
+  ["/admin/kho-hoa", "Kho hoa"],
+  ["/admin/lich-su-kho", "Lịch sử kho"],
+  ["/admin/customers", "Khách hàng"],
+  ["/admin/giao-hang", "Giao hàng"],
+  ["/admin/danh-muc", "Danh mục"],
+  ["/admin/tone-mau", "Tone màu"],
+  ["/admin/dip-tang", "Dịp tặng"],
+  ["/admin/nhan-vien", "Nhân viên"],
+  ["/admin/cai-dat", "Cài đặt"],
+] as const;
+
 export default function AdminNav() {
-  return <nav className="flex flex-wrap gap-2 border-b border-border pb-4 text-sm font-semibold"><Link href="/admin" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Tổng quan</Link><Link href="/admin/san-pham" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Sản phẩm & hình ảnh</Link><Link href="/admin/kho-hoa" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Kho hoa</Link><Link href="/admin/danh-muc" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Danh mục</Link><Link href="/admin/tone-mau" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Tone màu</Link><Link href="/admin/dip-tang" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Dịp tặng</Link><Link href="/admin/nhan-vien" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Nhân viên</Link><Link href="/admin/cai-dat" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Cài đặt</Link><Link href="/staff" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Vận hành đơn</Link></nav>;
+  return <nav aria-label="Điều hướng quản trị" className="flex flex-wrap gap-2 border-b border-border pb-4 text-sm font-semibold">{links.map(([href, label]) => <Link key={href} href={href} className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">{label}</Link>)}<Link href="/staff" className="rounded-full bg-surface px-4 py-2 hover:bg-surface-muted">Vận hành đơn</Link></nav>;
 }

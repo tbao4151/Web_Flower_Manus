@@ -7,7 +7,7 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Bạn cần đăng nhập." }, { status: 401 });
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase.from("orders").select("id, order_code, recipient_name, recipient_phone, is_pickup, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, total_vnd, status, created_at, order_items(product_name_snapshot, quantity, unit_price_vnd, line_total_vnd)").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50);
+    const { data, error } = await supabase.from("orders").select("id, order_code, recipient_name, recipient_phone, is_pickup, delivery_method, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, shipping_fee_confirmed, total_vnd, deposit_required_vnd, deposit_paid_vnd, remaining_amount_vnd, payment_status, delivery_status, carrier_name, shipper_name, estimated_delivery_at, status, created_at, order_items(product_name_snapshot, quantity, unit_price_vnd, line_total_vnd)").eq("user_id", user.id).order("created_at", { ascending: false }).limit(50);
     if (error) return NextResponse.json({ error: "Không thể tải đơn hàng." }, { status: 500 });
     return NextResponse.json({ orders: data ?? [] });
   } catch {

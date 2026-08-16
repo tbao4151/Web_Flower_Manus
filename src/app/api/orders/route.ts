@@ -118,6 +118,9 @@ export async function POST(request: Request) {
       recipient_name: recipientName,
       recipient_phone: recipientPhone,
       is_pickup: isPickup,
+      delivery_method: isPickup ? "pickup" : "delivery",
+      shipping_fee_confirmed: false,
+      delivery_status: isPickup ? "pending" : "pending",
       delivery_address: isPickup ? null : address,
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
@@ -156,7 +159,7 @@ export async function GET(request: Request) {
     const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const { count } = await supabase.from("order_lookup_audit").select("id", { count: "exact", head: true }).eq("order_code", parsed.data.orderCode).eq("phone_hash", phoneHash).gte("created_at", since);
     if ((count ?? 0) >= 10) return NextResponse.json({ error: "Bạn đã thử quá nhiều lần. Vui lòng chờ ít phút rồi thử lại." }, { status: 429 });
-    const { data: order } = await supabase.from("orders").select("order_code, recipient_name, recipient_phone, is_pickup, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, total_vnd, status, created_at, order_items(product_name_snapshot, product_sku_snapshot, unit_price_vnd, quantity, line_total_vnd)").eq("order_code", parsed.data.orderCode).eq("recipient_phone", parsed.data.recipientPhone).maybeSingle();
+    const { data: order } = await supabase.from("orders").select("order_code, recipient_name, recipient_phone, is_pickup, delivery_method, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, shipping_fee_confirmed, total_vnd, deposit_required_vnd, deposit_paid_vnd, remaining_amount_vnd, payment_status, delivery_status, carrier_name, shipper_name, estimated_delivery_at, status, created_at, order_items(product_name_snapshot, product_sku_snapshot, unit_price_vnd, quantity, line_total_vnd)").eq("order_code", parsed.data.orderCode).eq("recipient_phone", parsed.data.recipientPhone).maybeSingle();
     await supabase.from("order_lookup_audit").insert({ order_code: parsed.data.orderCode, phone_hash: phoneHash, succeeded: Boolean(order) });
     if (!order) return NextResponse.json({ error: "Không tìm thấy đơn hàng phù hợp." }, { status: 404 });
     return NextResponse.json({ order });
