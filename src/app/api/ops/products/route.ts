@@ -133,12 +133,17 @@ export async function PATCH(request: Request) {
       values.status = status;
       values.archived_at = status === "archived" ? new Date().toISOString() : null;
     }
-    const { data, error } = await supabase.from("products").update(values).eq("id", body.id).select(adminProductSelect).single();
-    if (error || !data) {
-      console.error("[admin/products PATCH] update failed", { productId: body.id, error: error?.message, code: error?.code });
+    const { error } = await supabase.from("products").update(values).eq("id", body.id);
+    if (error) {
+      console.error("[admin/products PATCH] update failed", { productId: body.id, error: error.message, code: error.code });
       return NextResponse.json({ error: "Không thể cập nhật sản phẩm." }, { status: 500 });
     }
     await syncRelations(body.id, { categoryIds, toneIds, occasionIds });
+    const { data, error: reloadError } = await supabase.from("products").select(adminProductSelect).eq("id", body.id).single();
+    if (reloadError || !data) {
+      console.error("[admin/products PATCH] reload failed", { productId: body.id, error: reloadError?.message, code: reloadError?.code });
+      return NextResponse.json({ error: "Đã lưu nhưng không thể tải lại sản phẩm." }, { status: 500 });
+    }
     return NextResponse.json({ product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) });
   } catch (error) {
     console.error("[admin/products PATCH] unhandled failure", error instanceof Error ? error.message : error);
