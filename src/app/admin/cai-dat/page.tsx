@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import AdminNav from "../_components/AdminNav";
 
 type Setting = { key: string; value_json?: Record<string, unknown> };
 
@@ -60,7 +59,6 @@ export default function AdminSettingsPage() {
   return (
     <main className="min-h-screen bg-background px-5 py-7 sm:px-8">
       <div className="mx-auto max-w-7xl">
-        <AdminNav />
         <section className="mt-7 max-w-2xl rounded-[24px] border border-border bg-surface p-5 sm:p-7">
           <p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">Shop settings</p>
           <h1 className="mt-2 font-display text-4xl">Cài đặt shop</h1>

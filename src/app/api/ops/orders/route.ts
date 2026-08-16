@@ -39,6 +39,27 @@ const transitions: Record<string, string[]> = {
 
 const orderSelect = "id, order_code, customer_name, customer_phone, recipient_name, recipient_phone, is_pickup, delivery_method, delivery_address, delivery_date, delivery_time, card_message, note, internal_note, subtotal_vnd, shipping_vnd, shipping_fee_confirmed, total_vnd, deposit_required_vnd, deposit_paid_vnd, remaining_amount_vnd, payment_status, delivery_status, carrier_name, shipper_name, estimated_delivery_at, status, created_at, updated_at, order_items(product_name_snapshot, quantity, unit_price_vnd, line_total_vnd)";
 
+const statusAliases: Record<string, string> = {
+  pending: "pending_confirmation",
+  pending_confirmation: "pending_confirmation",
+  confirmed: "confirmed",
+  preparing: "preparing",
+  ready: "ready",
+  delivering: "delivering",
+  completed: "completed",
+  cancelled: "cancelled",
+};
+
+function vietnamDateKey(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(date);
+}
+
+function addDays(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00+07:00`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export async function GET(request: Request) {
   const current = await requireStaff();
   if (!current) return NextResponse.json({ error: "Bạn không có quyền truy cập." }, { status: 403 });
@@ -46,13 +67,35 @@ export async function GET(request: Request) {
   const page = Math.max(1, Number(searchParams.get("page") || "1"));
   const pageSize = Math.min(100, Math.max(10, Number(searchParams.get("pageSize") || "20")));
   const search = (searchParams.get("search")?.trim() || "").replace(/[(),]/g, " ");
-  const status = searchParams.get("status") || "all";
+  const requestedStatus = (searchParams.get("status") || "all").toLowerCase();
+  const status = statusAliases[requestedStatus] || requestedStatus;
   const deliveryDate = searchParams.get("deliveryDate") || "";
+  const date = searchParams.get("date") || "";
+  const range = searchParams.get("range") || "";
+  const paymentStatus = (searchParams.get("payment_status") || searchParams.get("paymentStatus") || "").toLowerCase();
+  const receiveWindow = searchParams.get("receive_window") || searchParams.get("receiveWindow") || "";
+  const deliveryStatus = (searchParams.get("delivery_status") || searchParams.get("deliveryStatus") || "").toLowerCase();
   try {
     const supabase = createSupabaseAdminClient();
     let query = supabase.from("orders").select(orderSelect, { count: "exact" }).order("created_at", { ascending: false });
     if (status !== "all" && statuses.includes(status as typeof statuses[number])) query = query.eq("status", status);
     if (deliveryDate) query = query.eq("delivery_date", deliveryDate);
+    if (paymentStatus && ["unpaid", "partially_paid", "paid"].includes(paymentStatus)) query = query.eq("payment_status", paymentStatus);
+    if (deliveryStatus === "not_delivered") query = query.in("delivery_status", ["pending", "assigned", "pickup_ready"]);
+    else if (deliveryStatus && deliveryStatuses.includes(deliveryStatus as typeof deliveryStatuses[number])) query = query.eq("delivery_status", deliveryStatus);
+    if (range === "24h") query = query.gte("created_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+    if (date === "today") {
+      const today = vietnamDateKey(new Date());
+      const tomorrow = addDays(today, 1);
+      query = query.gte("created_at", `${today}T00:00:00+07:00`).lt("created_at", `${tomorrow}T00:00:00+07:00`);
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const nextDate = addDays(date, 1);
+      query = query.gte("created_at", `${date}T00:00:00+07:00`).lt("created_at", `${nextDate}T00:00:00+07:00`);
+    }
+    if (receiveWindow === "24-48h") {
+      const today = vietnamDateKey(new Date());
+      query = query.gte("delivery_date", addDays(today, 1)).lte("delivery_date", addDays(today, 2));
+    }
     if (search) query = query.or(`order_code.ilike.%${search}%,customer_phone.ilike.%${search}%,customer_name.ilike.%${search}%,recipient_phone.ilike.%${search}%,recipient_name.ilike.%${search}%`);
     const from = (page - 1) * pageSize;
     const { data, count, error } = await query.range(from, from + pageSize - 1);

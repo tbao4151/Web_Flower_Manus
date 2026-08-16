@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { ChevronDown, ClipboardList, LoaderCircle, Search } from "lucide-react";
-import AdminNav from "../_components/AdminNav";
 
 type Item = { product_name_snapshot: string; quantity: number; unit_price_vnd: number; line_total_vnd: number };
 type Order = {
@@ -15,25 +14,45 @@ type Order = {
 };
 const statuses = ["all", "pending_confirmation", "confirmed", "preparing", "ready", "delivering", "completed", "cancelled"];
 const labels: Record<string, string> = { all: "Tất cả", pending_confirmation: "Chờ xác nhận", confirmed: "Đã xác nhận", preparing: "Đang chuẩn bị", ready: "Hoàn thành mẫu", delivering: "Đang giao", completed: "Hoàn tất", cancelled: "Đã hủy" };
+const paymentStatuses = ["all", "unpaid", "partially_paid", "paid"];
+const paymentLabels: Record<string, string> = { all: "Mọi thanh toán", unpaid: "Chưa thu", partially_paid: "Đã cọc", paid: "Đã thanh toán" };
 const deliveryLabels: Record<string, string> = { pending: "Chờ xử lý", assigned: "Đã phân công", out_for_delivery: "Đang giao", delivered: "Đã giao", pickup_ready: "Sẵn sàng nhận", picked_up: "Đã nhận tại shop", failed: "Giao không thành công" };
 const money = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [status, setStatus] = useState("all"); const [search, setSearch] = useState(""); const [date, setDate] = useState("");
+  const [range, setRange] = useState(""); const [createdDate, setCreatedDate] = useState(""); const [paymentStatus, setPaymentStatus] = useState("all"); const [receiveWindow, setReceiveWindow] = useState("");
+  const [queryReady, setQueryReady] = useState(false);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [expanded, setExpanded] = useState(""); const [updating, setUpdating] = useState("");
   const [paymentAmount, setPaymentAmount] = useState(""); const [depositRequired, setDepositRequired] = useState(""); const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
   const [shipping, setShipping] = useState(""); const [shippingConfirmed, setShippingConfirmed] = useState(false);
   const [deliveryStatus, setDeliveryStatus] = useState("pending"); const [carrier, setCarrier] = useState(""); const [shipper, setShipper] = useState(""); const [estimatedAt, setEstimatedAt] = useState("");
 
   async function load() {
-    setLoading(true); const params = new URLSearchParams({ status, search, pageSize: "100" }); if (date) params.set("deliveryDate", date);
+    setLoading(true); const params = new URLSearchParams({ status, search, pageSize: "100" });
+    if (date) params.set("deliveryDate", date);
+    if (range) params.set("range", range);
+    if (createdDate) params.set("date", createdDate);
+    if (paymentStatus !== "all") params.set("payment_status", paymentStatus);
+    if (receiveWindow) params.set("receive_window", receiveWindow);
     const response = await fetch(`/api/ops/orders?${params}`); const result = await response.json().catch(() => ({}));
     if (!response.ok) setError(result.error || "Không thể tải đơn hàng."); else { setOrders(result.orders || []); setError(""); } setLoading(false);
   }
-  // The protected operational fetch intentionally hydrates the client dashboard after mount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStatus(params.get("status") || "all");
+    setRange(params.get("range") || "");
+    setCreatedDate(params.get("date") || "");
+    setPaymentStatus(params.get("payment_status") || "all");
+    setReceiveWindow(params.get("receive_window") || "");
+    setDate(params.get("deliveryDate") || "");
+    setQueryReady(true);
+  }, []);
+  // The protected operational fetch intentionally hydrates the client dashboard after query parameters are applied.
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [status, date]);
+  useEffect(() => { if (queryReady) load(); }, [queryReady, status, date, range, createdDate, paymentStatus, receiveWindow]);
   async function patch(body: Record<string, unknown>) {
     setUpdating(String(body.orderId)); const response = await fetch("/api/ops/orders", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const result = await response.json().catch(() => ({})); if (!response.ok) setError(result.error || "Không thể cập nhật đơn."); else { setError(""); await load(); } setUpdating("");
@@ -45,8 +64,8 @@ export default function AdminOrdersPage() {
   const transitionMap: Record<string, string[]> = { pending_confirmation: ["confirmed", "cancelled"], confirmed: ["preparing", "cancelled"], preparing: ["ready", "cancelled"], ready: ["delivering"], delivering: ["completed"] };
   const deliveryOptions = (order: Order) => order.is_pickup ? ["pickup_ready", "picked_up", "failed"] : ["assigned", "out_for_delivery", "delivered", "failed"];
 
-  return <main className="min-h-screen bg-background px-5 py-6 sm:px-8"><div className="mx-auto max-w-7xl"><header className="mb-6"><p className="font-display text-2xl">CÁ&apos;S HOA</p><p className="mt-1 text-sm text-muted-foreground">Quản lý đơn hàng và vận hành</p></header><AdminNav /><section className="py-8"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-primary"><ClipboardList size={14} /> Admin orders</p><h1 className="mt-2 font-display text-4xl">Đơn hàng</h1></div><p className="text-sm text-muted-foreground">{orders.length} đơn đang hiển thị</p></div>
-    <div className="mt-7 grid gap-3 lg:grid-cols-[1fr_200px_180px_auto]"><label className="relative block"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") load(); }} className="h-12 w-full rounded-full border border-border bg-surface pl-11 pr-4" placeholder="Mã đơn, tên hoặc số điện thoại" /></label><select value={status} onChange={(event) => setStatus(event.target.value)} className="h-12 rounded-full border border-border bg-surface px-4 text-sm font-semibold">{statuses.map((item) => <option key={item} value={item}>{labels[item]}</option>)}</select><input value={date} onChange={(event) => setDate(event.target.value)} type="date" className="h-12 rounded-full border border-border bg-surface px-4 text-sm" /><button onClick={load} className="h-12 rounded-full bg-primary px-5 font-bold text-white">Lọc đơn</button></div>
+  return <main className="min-h-screen bg-background px-5 py-6 sm:px-8"><div className="mx-auto max-w-7xl"><header className="mb-6"><p className="font-display text-2xl">CÁ&apos;S HOA</p><p className="mt-1 text-sm text-muted-foreground">Quản lý đơn hàng và vận hành</p></header><section className="py-8"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.18em] text-primary"><ClipboardList size={14} /> Admin orders</p><h1 className="mt-2 font-display text-4xl">Đơn hàng</h1></div><p className="text-sm text-muted-foreground">{orders.length} đơn đang hiển thị</p></div>
+    <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><label className="relative block sm:col-span-2 lg:col-span-2"><Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") load(); }} className="h-12 w-full rounded-full border border-border bg-surface pl-11 pr-4" placeholder="Mã đơn, tên hoặc số điện thoại" /></label><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Lọc trạng thái đơn" className="h-12 rounded-full border border-border bg-surface px-4 text-sm font-semibold">{statuses.map((item) => <option key={item} value={item}>{labels[item]}</option>)}</select><select value={paymentStatus} onChange={(event) => setPaymentStatus(event.target.value)} aria-label="Lọc trạng thái thanh toán" className="h-12 rounded-full border border-border bg-surface px-4 text-sm font-semibold">{paymentStatuses.map((item) => <option key={item} value={item}>{paymentLabels[item]}</option>)}</select><input value={date} onChange={(event) => setDate(event.target.value)} type="date" aria-label="Ngày nhận" className="h-12 rounded-full border border-border bg-surface px-4 text-sm" /><input value={createdDate && createdDate !== "today" ? createdDate : ""} onChange={(event) => setCreatedDate(event.target.value)} type="date" aria-label="Ngày tạo đơn" className="h-12 rounded-full border border-border bg-surface px-4 text-sm" /><select value={range} onChange={(event) => setRange(event.target.value)} aria-label="Khoảng thời gian tạo đơn" className="h-12 rounded-full border border-border bg-surface px-4 text-sm"><option value="">Mọi thời gian</option><option value="24h">24 giờ qua</option></select><select value={receiveWindow} onChange={(event) => setReceiveWindow(event.target.value)} aria-label="Khung thời gian nhận" className="h-12 rounded-full border border-border bg-surface px-4 text-sm"><option value="">Mọi lịch nhận</option><option value="24-48h">Nhận trong 24–48 giờ</option></select><div className="flex gap-2 sm:col-span-2 lg:col-span-2"><button onClick={load} className="h-12 flex-1 rounded-full bg-primary px-5 font-bold text-white">Lọc đơn</button><button type="button" onClick={() => { setStatus("all"); setSearch(""); setDate(""); setRange(""); setCreatedDate(""); setPaymentStatus("all"); setReceiveWindow(""); }} className="h-12 rounded-full border border-border px-4 text-sm font-bold">Xóa lọc</button></div></div>
     {error && <p role="alert" className="mt-5 rounded-xl bg-[#fae8e4] p-4 text-sm text-danger">{error}</p>}
     {loading ? <div className="flex justify-center py-16"><LoaderCircle className="animate-spin text-primary" /></div> : orders.length === 0 ? <div className="mt-8 rounded-[24px] border border-border bg-surface p-8 text-center text-sm text-muted-foreground">Không có đơn phù hợp.</div> : <div className="mt-8 space-y-4">{orders.map((order) => <article key={order.id} className="rounded-[24px] border border-border bg-surface p-5 sm:p-6"><button onClick={() => open(order)} className="flex w-full items-start justify-between gap-4 text-left"><div><p className="font-bold">{order.order_code}</p><p className="mt-1 text-xs text-muted-foreground">{new Date(order.created_at).toLocaleString("vi-VN")} · {order.recipient_name} · {order.recipient_phone}</p><p className="mt-2 text-sm text-muted-foreground">{order.is_pickup ? "Tự tới lấy tại shop" : `${order.delivery_address || "Chưa có địa chỉ"} · ${order.delivery_date || "Chưa hẹn"} ${order.delivery_time || ""}`}</p></div><div className="flex items-center gap-3"><span className="rounded-full bg-[#e4ecdf] px-3 py-1 text-xs font-bold text-primary">{labels[order.status] || order.status}</span><ChevronDown size={18} className={expanded === order.id ? "rotate-180" : ""} /></div></button>
       <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 border-t border-border pt-4 text-sm"><span>Tạm tính: <strong>{money(order.subtotal_vnd)}đ</strong></span><span>Ship: <strong>{order.shipping_fee_confirmed || order.is_pickup ? `${money(order.shipping_vnd)}đ` : "Shop xác nhận sau"}</strong></span><span>Tổng: <strong className="text-primary">{money(order.total_vnd)}đ</strong></span><span>Cọc: <strong>{money(order.deposit_paid_vnd || 0)}đ / {money(order.deposit_required_vnd || 0)}đ</strong></span><span>Còn lại: <strong>{money(order.remaining_amount_vnd ?? order.total_vnd)}đ</strong></span><span>Thanh toán: <strong>{order.payment_status}</strong></span></div>
