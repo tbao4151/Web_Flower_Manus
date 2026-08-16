@@ -30,7 +30,16 @@ const validatePreorder = <T extends { saleMode?: string; preorderMinHours?: numb
 };
 
 const productSchema = productSchemaBase.superRefine(validatePreorder);
-const productPatchSchema = productSchemaBase.partial().superRefine(validatePreorder);
+
+// PATCH must never apply POST defaults to omitted fields. In particular, an image-only
+// update must not silently turn a published product into draft or clear its flags.
+const productPatchSchema = productSchemaBase.extend({
+  description: z.string().trim().max(1000).optional(),
+  featured: z.boolean().optional(),
+  status: z.enum(["draft", "published", "hidden", "archived"]).optional(),
+  saleMode: z.enum(["ready_stock", "preorder"]).optional(),
+  showWhenOutOfStock: z.boolean().optional(),
+}).partial().superRefine(validatePreorder);
 
 const adminProductSelect = "id, sku, slug, name, product_type, price_vnd, sale_price_vnd, description, composition, featured, status, sale_mode, preorder_min_hours, show_when_out_of_stock, archived_at, source_caption, source_reference, created_at, updated_at, product_images(id, storage_path, alt_text, display_order, is_cover, mime_type, created_at), product_categories(category_id), product_tones(tone_id), product_occasions(occasion_id)";
 const bucket = "product-images";
