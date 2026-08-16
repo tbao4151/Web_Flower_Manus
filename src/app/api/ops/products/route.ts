@@ -4,7 +4,7 @@ import { requireAdmin, requireStaff } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase-server";
 
 const ids = z.array(z.string().uuid()).max(50).optional();
-const productSchema = z.object({
+const productSchemaBase = z.object({
   sku: z.string().trim().min(2).max(50),
   slug: z.string().trim().min(2).max(120).regex(/^[a-z0-9-]+$/),
   name: z.string().trim().min(2).max(120),
@@ -21,11 +21,16 @@ const productSchema = z.object({
   categoryIds: ids,
   toneIds: ids,
   occasionIds: ids,
-}).superRefine((value, context) => {
+});
+
+const validatePreorder = <T extends { saleMode?: string; preorderMinHours?: number | null }>(value: T, context: z.RefinementCtx) => {
   if (value.saleMode === "preorder" && !value.preorderMinHours) {
     context.addIssue({ code: "custom", path: ["preorderMinHours"], message: "Sản phẩm đặt trước cần thời gian chuẩn bị tối thiểu." });
   }
-});
+};
+
+const productSchema = productSchemaBase.superRefine(validatePreorder);
+const productPatchSchema = productSchemaBase.partial().superRefine(validatePreorder);
 
 const adminProductSelect = "id, sku, slug, name, product_type, price_vnd, sale_price_vnd, description, composition, featured, status, sale_mode, preorder_min_hours, show_when_out_of_stock, archived_at, source_caption, source_reference, created_at, updated_at, product_images(id, storage_path, alt_text, display_order, is_cover, mime_type, created_at), product_categories(category_id), product_tones(tone_id), product_occasions(occasion_id)";
 const bucket = "product-images";
@@ -107,7 +112,7 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json().catch(() => null) as ({ id?: string } & Record<string, unknown>) | null;
     if (!body?.id || !z.string().uuid().safeParse(body.id).success) return NextResponse.json({ error: "Thiếu ID sản phẩm." }, { status: 400 });
-    const parsed = productSchema.partial().safeParse(body);
+    const parsed = productPatchSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: "Thông tin sản phẩm chưa hợp lệ." }, { status: 400 });
     if (parsed.data.salePriceVnd != null && parsed.data.priceVnd != null && parsed.data.salePriceVnd > parsed.data.priceVnd) return NextResponse.json({ error: "Giá sale không được cao hơn giá gốc." }, { status: 400 });
     const supabase = createSupabaseAdminClient();
@@ -146,9 +151,8 @@ export async function PATCH(request: Request) {
     }
     return NextResponse.json({ product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.error("[admin/products PATCH] unhandled failure", detail);
-    return NextResponse.json({ error: "Không thể cập nhật sản phẩm hoặc taxonomy.", detail: detail.slice(0, 240) }, { status: 500 });
+    console.error("[admin/products PATCH] unhandled failure", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Không thể cập nhật sản phẩm hoặc taxonomy." }, { status: 500 });
   }
 }
 
