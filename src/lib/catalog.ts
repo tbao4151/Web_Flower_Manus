@@ -13,6 +13,7 @@ export type CatalogProductRow = {
   description: string | null;
   composition: string | null;
   featured: boolean;
+  featured_position: 1 | 2 | 3 | null;
   status: "draft" | "published" | "hidden" | "archived";
   sale_mode: SaleMode;
   preorder_min_hours: number | null;
@@ -30,7 +31,7 @@ type TaxonomyRow = { id: string; name: string; slug: string };
 type CatalogAvailability = { quantity: number; status: AvailabilityStatus };
 
 export const publicProductSelect = [
-  "id", "sku", "slug", "name", "product_type", "price_vnd", "sale_price_vnd", "description", "composition", "featured", "status", "sale_mode", "preorder_min_hours", "show_when_out_of_stock", "source_caption", "source_reference", "created_at",
+  "id", "sku", "slug", "name", "product_type", "price_vnd", "sale_price_vnd", "description", "composition", "featured", "featured_position", "status", "sale_mode", "preorder_min_hours", "show_when_out_of_stock", "source_caption", "source_reference", "created_at",
   "product_images(id, storage_path, alt_text, display_order, is_cover)",
   "product_categories(category_id)", "product_tones(tone_id)", "product_occasions(occasion_id)",
 ].join(", ");
@@ -70,6 +71,7 @@ export function mapCatalogProduct(
     tones: taxonomyNames(row.product_tones, "tone_id", taxonomies.tones),
     occasions: taxonomyNames(row.product_occasions, "occasion_id", taxonomies.occasions),
     featured: row.featured,
+    ...(row.featured_position != null ? { featuredPosition: row.featured_position } : {}),
     status: row.status === "draft" ? "hidden" : row.status,
     ...(inventoryConfigured ? { availabilityStatus: availability?.status, availableQuantity: availability?.quantity, inventoryConfigured: true } : { inventoryConfigured: false }),
     saleMode: row.sale_mode,
@@ -81,9 +83,10 @@ export function mapCatalogProduct(
   };
 }
 
-export async function fetchCatalogProducts(supabase: SupabaseClient, options: { slug?: string; publishedOnly?: boolean } = {}) {
+export async function fetchCatalogProducts(supabase: SupabaseClient, options: { slug?: string; publishedOnly?: boolean; featuredOnly?: boolean; includeUnavailable?: boolean } = {}) {
   let query = supabase.from("products").select(publicProductSelect).order("featured", { ascending: false }).order("created_at", { ascending: false });
   if (options.slug) query = query.eq("slug", options.slug);
+  if (options.featuredOnly) query = query.not("featured_position", "is", null);
   if (options.publishedOnly !== false) query = query.eq("status", "published");
   const [productResult, categoryResult, toneResult, occasionResult, settingsResult] = await Promise.all([
     query,
@@ -115,7 +118,7 @@ export async function fetchCatalogProducts(supabase: SupabaseClient, options: { 
   return rows
     .map((row) => mapCatalogProduct(supabase, row, taxonomies, availability.get(row.id), configuredProductIds.has(row.id)))
     .filter((product) => {
-      if (options.publishedOnly === false || product.status !== "published" || !product.inventoryConfigured) return true;
+      if (options.includeUnavailable || options.publishedOnly === false || product.status !== "published" || !product.inventoryConfigured) return true;
       return product.saleMode === "preorder" || product.availabilityStatus !== "OUT_OF_STOCK" || product.showWhenOutOfStock;
     });
 }

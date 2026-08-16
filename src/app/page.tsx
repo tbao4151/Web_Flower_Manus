@@ -16,7 +16,6 @@ import {
   Search,
   ShoppingBag,
   UserRound,
-  Sparkles,
   X,
 } from "lucide-react";
 import { formatVnd, products, type Product, type ProductType } from "@/lib/products";
@@ -40,11 +39,19 @@ type CheckoutForm = {
 };
 
 type OrderResult = { code: string; summary: string };
+type FeaturedHeroProduct = { id: string; slug: string; name: string; image: string; featuredPosition: 1 | 2 | 3 };
 
 const todayPlusOne = () => new Date(Date.now() + 86400000).toISOString().slice(0, 10);
 const getPrice = (product: Product) => product.salePrice ?? product.price;
 const isOutOfStockReadyProduct = (product: Product) => product.inventoryConfigured === true && product.saleMode === "ready_stock" && product.availabilityStatus === "OUT_OF_STOCK";
 const preorderHoursForCart = (cart: CartLine[]) => Math.max(0, ...cart.map((line) => line.product.saleMode === "preorder" ? line.product.preorderMinHours || 0 : 0));
+
+function HeroFeaturedImage({ product, loading, slot, className }: { product?: FeaturedHeroProduct; loading: boolean; slot: string; className: string }) {
+  if (loading) return <div aria-label={`${slot} đang tải`} className={`animate-pulse bg-surface-muted ${className}`} />;
+  if (!product) return <div aria-label={`${slot} chưa được chọn`} className={`flex items-center justify-center bg-surface-muted px-6 text-center text-xs font-semibold text-muted-foreground ${className}`}>Mẫu nổi bật đang được cập nhật</div>;
+  return <a href={`/san-pham/${product.slug}`} aria-label={`Xem chi tiết ${product.name}`} className={`group block overflow-hidden bg-surface-muted outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${className}`}><img src={product.image} alt={product.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" /></a>;
+}
+
 export default function Home() {
   const [activeView, setActiveView] = useState<View>("home");
   const [query, setQuery] = useState("");
@@ -63,6 +70,8 @@ export default function Home() {
   const [checkout, setCheckout] = useState<CheckoutForm>({ recipientName: "", recipientPhone: "", address: "", isPickup: false, deliveryDate: todayPlusOne(), deliveryTime: "", cardMessage: "", note: "" });
   const [currentProfile, setCurrentProfile] = useState<{ full_name: string | null; phone: string | null; role: string } | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<Product[]>(products);
+  const [featuredHero, setFeaturedHero] = useState<FeaturedHeroProduct[]>([]);
+  const [featuredHeroLoading, setFeaturedHeroLoading] = useState(true);
   const [isReceiverSelf, setIsReceiverSelf] = useState(false);
   const socialSettings = useShopSocialSettings();
   const instagramProfile = socialSettings?.instagramUrl || "";
@@ -76,6 +85,31 @@ export default function Home() {
     }).then((result) => {
       setCatalogProducts(Array.isArray(result?.products) ? result.products as Product[] : []);
     }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const syncCatalogUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      const type = params.get("type");
+      // URL state is synchronized intentionally for CTA deep links and browser navigation.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActiveView(params.get("view") === "catalog" || type === "bouquet" || type === "basket" ? "catalog" : "home");
+      if (type === "bouquet" || type === "basket") setFilters((current) => ({ ...current, type }));
+    };
+    syncCatalogUrl();
+    window.addEventListener("popstate", syncCatalogUrl);
+    return () => window.removeEventListener("popstate", syncCatalogUrl);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/catalog/featured", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("featured_unavailable");
+        return response.json();
+      })
+      .then((result) => setFeaturedHero(Array.isArray(result?.products) ? result.products as FeaturedHeroProduct[] : []))
+      .catch(() => setFeaturedHero([]))
+      .finally(() => setFeaturedHeroLoading(false));
   }, []);
 
   useEffect(() => {
@@ -134,6 +168,11 @@ export default function Home() {
     setActiveView("catalog");
     setMobileNavOpen(false);
     if (type) setFilters((current) => ({ ...current, type }));
+    const params = new URLSearchParams(window.location.search);
+    params.set("view", "catalog");
+    if (type === "bouquet" || type === "basket") params.set("type", type);
+    if (type === "all") params.delete("type");
+    window.history.pushState({}, "", params.toString() ? `/?${params.toString()}` : "/");
     window.setTimeout(() => document.getElementById("catalog-search")?.focus(), 60);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -141,6 +180,7 @@ export default function Home() {
   const goHome = () => {
     setActiveView("home");
     setMobileNavOpen(false);
+    window.history.pushState({}, "", "/");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -230,7 +270,7 @@ export default function Home() {
       </header>
 
       {activeView === "home" ? <>
-        <section className="container-cas grid items-center gap-7 py-8 sm:py-12 md:grid-cols-[.9fr_1.1fr] md:gap-12 md:py-16"><div className="order-2 max-w-xl md:order-1"><p className="mb-4 flex items-center gap-3 text-[11px] font-bold uppercase tracking-[.2em] text-primary"><span className="h-px w-7 bg-primary" /> Tiệm hoa tươi online</p><h1 className="font-display text-[clamp(3rem,8vw,6.3rem)] leading-[.93] tracking-[-.05em]">Chọn hoa thật <em className="text-primary">đúng ý.</em></h1><p className="mt-5 max-w-md text-sm leading-7 text-muted-foreground sm:text-base">Xem những mẫu hoa đang được CÁ&apos;S HOA cập nhật, chọn nhanh một bó và gửi lời nhắn của bạn.</p><div className="mt-7 flex flex-wrap gap-2.5"><button onClick={() => goCatalog("bouquet")} className="press flex min-h-12 items-center gap-2 rounded-full bg-primary px-5 text-sm font-bold text-white hover:bg-primary-hover">Xem bó hoa <ArrowRight size={16} /></button><button onClick={() => goCatalog("basket")} className="press flex min-h-12 items-center gap-2 rounded-full border border-border bg-transparent px-5 text-sm font-bold hover:bg-surface-muted">Xem giỏ hoa <ArrowRight size={16} /></button></div><div className="mt-7 flex items-center gap-3 text-xs text-muted-foreground"><Sparkles size={15} className="text-primary" /> Xem chi tiết, chọn số lượng và đặt hoa trực tiếp trên website.</div></div><div className="order-1 grid grid-cols-2 gap-2.5 md:order-2 md:gap-3"><img src="/ig-assets/hoa-ly.jpg" alt="Bó hoa ly màu hồng của CÁ'S HOA" className="aspect-[.86] w-full rounded-[32px_32px_10px_32px] object-cover" /><div className="grid gap-2.5 md:gap-3"><img src="/ig-assets/lam-tinh.jpg" alt="Bó hoa Lam tinh màu xanh của CÁ'S HOA" className="aspect-square w-full rounded-[10px_32px_32px_32px] object-cover" /><img src="/ig-assets/mot-bo-hoa.jpg" alt="Bó hoa màu đỏ hồng của CÁ'S HOA" className="aspect-square w-full rounded-[32px_10px_32px_32px] object-cover" /></div></div></section>
+        <section className="container-cas py-8 sm:py-12 md:py-16" aria-labelledby="hero-title"><div className="grid gap-3 md:grid-cols-[minmax(0,.86fr)_minmax(260px,.64fr)] md:gap-4"><div className="min-w-0"><h1 id="hero-title" className="sr-only">Mẫu hoa nổi bật của CÁ&apos;S HOA</h1><HeroFeaturedImage product={featuredHero.find((item) => item.featuredPosition === 1)} loading={featuredHeroLoading} slot="Ảnh lớn bên trái" className="aspect-[.86] rounded-[32px_32px_10px_32px]" /><div className="mt-3 grid gap-2.5"><button onClick={() => goCatalog("bouquet")} className="press flex min-h-14 w-full items-center justify-between rounded-2xl bg-primary px-5 text-sm font-bold uppercase tracking-[.08em] text-white hover:bg-primary-hover">Xem bó hoa <ArrowRight size={17} /></button><button onClick={() => goCatalog("basket")} className="press flex min-h-12 w-full items-center justify-between rounded-2xl border border-primary bg-background px-5 text-sm font-bold uppercase tracking-[.08em] text-primary hover:bg-[#e4ecdf]">Xem giỏ hoa <ArrowRight size={17} /></button></div></div><div className="grid min-w-0 gap-3"><HeroFeaturedImage product={featuredHero.find((item) => item.featuredPosition === 2)} loading={featuredHeroLoading} slot="Ảnh trên bên phải" className="aspect-square rounded-[10px_32px_32px_32px]" /><HeroFeaturedImage product={featuredHero.find((item) => item.featuredPosition === 3)} loading={featuredHeroLoading} slot="Ảnh dưới bên phải" className="aspect-square rounded-[32px_10px_32px_32px]" /></div></div></section>
         <section className="border-y border-border bg-surface py-8"><div className="container-cas"><div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary">Mua nhanh</p><h2 className="mt-1 font-display text-3xl sm:text-4xl">Bạn đang tìm gì?</h2></div><button onClick={() => goCatalog()} className="hidden items-center gap-1 text-sm font-bold text-primary sm:flex">Tất cả sản phẩm <ArrowRight size={15} /></button></div><div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4"><QuickShopButton label="Bó hoa" detail="Mẫu đang có" image="/ig-assets/garden.jpg" onClick={() => goCatalog("bouquet")} /><QuickShopButton label="Giỏ hoa" detail="Xem sản phẩm" image="/ig-assets/cam-tu-cau.jpg" onClick={() => goCatalog("basket")} /><QuickShopButton label="Dưới 350.000đ" detail="Chọn theo giá" image="/ig-assets/son-sac-thuy-chung.jpg" onClick={() => { setFilters((current) => ({ ...current, maxPrice: 350000 })); goCatalog(); }} /><QuickShopButton label="Mẫu mới" detail="Vừa cập nhật" image="/ig-assets/ly-xanh.jpg" onClick={() => { setSort("newest"); goCatalog(); }} /></div><button onClick={() => goCatalog()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-border py-3 text-sm font-bold text-primary sm:hidden">Xem tất cả sản phẩm <ArrowRight size={15} /></button></div></section>
         <section className="container-cas py-10 sm:py-14"><div className="mb-6 flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary">Đang được chọn</p><h2 className="mt-2 font-display text-4xl sm:text-5xl">Bó hoa mới cập nhật.</h2></div><button onClick={() => goCatalog()} className="hidden items-center gap-1 text-sm font-bold text-primary sm:flex">Xem tất cả <ArrowRight size={15} /></button></div><div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">{featured.map((product) => <ProductCard key={product.id} product={product} onAdd={() => addToCart(product)} />)}</div></section>
         <section className="bg-surface py-10 sm:py-14"><div className="container-cas grid gap-7 md:grid-cols-[.8fr_1.2fr] md:items-center"><div><p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary">Theo dõi mẫu thật</p><h2 className="mt-2 font-display text-4xl sm:text-5xl">Hoa mới lên Instagram.</h2><p className="mt-3 max-w-sm text-sm leading-7 text-muted-foreground">Xem thêm các mẫu hoa và thông tin giá được shop công khai trên tài khoản chính thức.</p>{instagramProfile && <a href={instagramProfile} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 text-sm font-bold text-white hover:bg-primary-hover">Nhắn Instagram DM <ExternalLink size={15} /></a>}</div><div className="grid grid-cols-3 gap-2.5 sm:gap-3"><a href="https://www.instagram.com/p/Dbc8XX0lAL4/" target="_blank" rel="noreferrer"><img src="/ig-assets/hoa-ly.jpg" alt="Xem bài đăng Hoa ly trên Instagram" className="aspect-square w-full rounded-2xl object-cover transition hover:opacity-80" /></a><a href="https://www.instagram.com/p/DbKovTNgadK/" target="_blank" rel="noreferrer"><img src="/ig-assets/cam-tu-cau.jpg" alt="Xem bài đăng Cẩm tú cầu trên Instagram" className="aspect-square w-full rounded-2xl object-cover transition hover:opacity-80" /></a><a href="https://www.instagram.com/p/DbFXU4-AZDP/" target="_blank" rel="noreferrer"><img src="/ig-assets/phi-yen.jpg" alt="Xem bài đăng Phi yến trên Instagram" className="aspect-square w-full rounded-2xl object-cover transition hover:opacity-80" /></a></div></div></section>

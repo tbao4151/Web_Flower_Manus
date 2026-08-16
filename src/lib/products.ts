@@ -18,6 +18,7 @@ export type Product = {
   tones: string[];
   occasions: string[];
   featured?: boolean;
+  featuredPosition?: 1 | 2 | 3;
   status: "published" | "hidden" | "archived";
   availabilityStatus?: AvailabilityStatus;
   availableQuantity?: number;

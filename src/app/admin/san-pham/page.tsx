@@ -7,7 +7,8 @@ type Status = "draft" | "published" | "hidden" | "archived";
 type ProductType = "bouquet" | "basket";
 type ImageItem = { id: string; storage_path: string; public_url: string; alt_text: string; display_order: number; is_cover: boolean; mime_type?: string };
 type Relation = { category_id?: string; tone_id?: string; occasion_id?: string };
-type Product = { id: string; sku: string; slug: string; name: string; product_type: ProductType; price_vnd: number; sale_price_vnd: number | null; description: string; composition: string | null; featured: boolean; status: Status; archived_at: string | null; sale_mode?: "ready_stock" | "preorder"; preorder_min_hours?: number | null; show_when_out_of_stock?: boolean; product_images: ImageItem[]; product_categories: Relation[]; product_tones: Relation[]; product_occasions: Relation[] };
+type Product = { id: string; sku: string; slug: string; name: string; product_type: ProductType; price_vnd: number; sale_price_vnd: number | null; description: string; composition: string | null; featured: boolean; featured_position: 1 | 2 | 3 | null; status: Status; archived_at: string | null; sale_mode?: "ready_stock" | "preorder"; preorder_min_hours?: number | null; show_when_out_of_stock?: boolean; product_images: ImageItem[]; product_categories: Relation[]; product_tones: Relation[]; product_occasions: Relation[] };
+type FeaturedSlots = { 1: string | null; 2: string | null; 3: string | null };
 type Taxonomy = { id: string; name: string; slug: string; is_active: boolean };
 type InventoryOption = { id: string; name: string; unit: string; is_active: boolean };
 type RecipeRow = { inventoryItemId: string; quantityRequired: string };
@@ -16,6 +17,7 @@ type FormState = { sku: string; slug: string; name: string; productType: Product
 const blank: FormState = { sku: "", slug: "", name: "", productType: "bouquet", priceVnd: "", salePriceVnd: "", description: "", composition: "", featured: false, status: "draft", saleMode: "ready_stock", preorderMinHours: "", showWhenOutOfStock: false, categoryIds: [], toneIds: [], occasionIds: [] };
 const money = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 const statusLabel: Record<Status, string> = { draft: "Bản nháp", published: "Đang hiển thị", hidden: "Đã ẩn", archived: "Đã lưu trữ" };
+const featuredSlotLabels = [{ position: 1 as const, label: "Vị trí 1 – Ảnh lớn", detail: "Ảnh lớn bên trái" }, { position: 2 as const, label: "Vị trí 2 – Ảnh trên bên phải", detail: "Ảnh nhỏ phía trên" }, { position: 3 as const, label: "Vị trí 3 – Ảnh dưới bên phải", detail: "Ảnh nhỏ phía dưới" }];
 
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -34,6 +36,9 @@ export default function AdminProductsPage() {
   const [inventoryItems, setInventoryItems] = useState<InventoryOption[]>([]);
   const [recipe, setRecipe] = useState<RecipeRow[]>([]);
   const [availableQuantity, setAvailableQuantity] = useState<number | null>(null);
+  const [featuredCandidates, setFeaturedCandidates] = useState<Product[]>([]);
+  const [featuredSlots, setFeaturedSlots] = useState<FeaturedSlots>({ 1: null, 2: null, 3: null });
+  const [featuredSaving, setFeaturedSaving] = useState(false);
 
   async function loadProducts(nextSelectedId?: string) {
     const params = new URLSearchParams({ pageSize: "100" });
@@ -46,6 +51,28 @@ export default function AdminProductsPage() {
     setProducts(loaded);
     const id = nextSelectedId || selected?.id;
     if (id) setSelected(loaded.find((item) => item.id === id) || null);
+  }
+
+  async function loadFeaturedSlots() {
+    const response = await fetch("/api/admin/featured", { cache: "no-store" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) { setError(result.error || "Không thể tải mẫu nổi bật."); return; }
+    const loaded = (result.products || []) as Product[];
+    setFeaturedCandidates(loaded);
+    setFeaturedSlots(loaded.reduce<FeaturedSlots>((slots, product) => {
+      if (product.featured_position) slots[product.featured_position] = product.id;
+      return slots;
+    }, { 1: null, 2: null, 3: null }));
+  }
+
+  async function saveFeaturedSlots() {
+    setFeaturedSaving(true); setError(""); setNotice("");
+    const response = await fetch("/api/admin/featured", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ positionOne: featuredSlots[1], positionTwo: featuredSlots[2], positionThree: featuredSlots[3] }) });
+    const result = await response.json().catch(() => ({}));
+    setFeaturedSaving(false);
+    if (!response.ok) { setError(result.error || "Không thể lưu mẫu nổi bật."); return; }
+    setNotice("Đã lưu 3 mẫu nổi bật trang chủ.");
+    await loadFeaturedSlots();
   }
 
   async function loadTaxonomies() {
@@ -70,7 +97,7 @@ export default function AdminProductsPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadProducts(); }, [search, status]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void loadTaxonomies(); }, []);
+  useEffect(() => { void loadTaxonomies(); void loadFeaturedSlots(); }, []);
   // Recipe and availability are synchronized with the selected product and protected Admin APIs.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (showEditor) void loadInventoryEditor(selected?.id); }, [selected?.id, showEditor]);
@@ -166,7 +193,9 @@ export default function AdminProductsPage() {
   }
 
   const imageCount = selected?.product_images.length || 0;
+  const validFeaturedCandidates = featuredCandidates.filter((product) => product.status === "published" && product.product_images.some((image) => Boolean(image.public_url)));
   return <main className="min-h-screen bg-background px-4 py-5 sm:px-8 sm:py-7"><div className="mx-auto max-w-7xl"><section className="mt-6 rounded-[24px] border border-border bg-surface p-4 sm:p-7"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">Catalog control</p><h1 className="mt-2 font-display text-4xl sm:text-5xl">Sản phẩm</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Quản lý thông tin, hình ảnh, trạng thái hiển thị và lịch sử sản phẩm. Dữ liệu lưu trong PostgreSQL và ảnh trong Supabase Storage.</p></div><button onClick={openNew} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white"><Plus size={17} /> Thêm sản phẩm</button></div>
+      <section className="mt-7 rounded-2xl border border-primary/25 bg-[#f3f7ef] p-4 sm:p-6" aria-labelledby="homepage-featured-title"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">Homepage</p><h2 id="homepage-featured-title" className="mt-2 font-display text-3xl">Mẫu nổi bật trang chủ</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">Chọn tối đa 3 sản phẩm đang hiển thị và có ảnh hợp lệ. Thay đổi tại đây sẽ cập nhật HERO mà không cần sửa code hoặc redeploy.</p></div><button type="button" disabled={featuredSaving} onClick={() => void saveFeaturedSlots()} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white disabled:opacity-60"><Save size={16} />{featuredSaving ? "Đang lưu..." : "Lưu mẫu nổi bật"}</button></div><div className="mt-5 grid gap-3 lg:grid-cols-3">{featuredSlotLabels.map((slot) => { const selectedId = featuredSlots[slot.position]; const selectedProduct = validFeaturedCandidates.find((product) => product.id === selectedId); return <div key={slot.position} className="rounded-2xl border border-border bg-background p-3"><div className="aspect-[4/3] overflow-hidden rounded-xl bg-surface-muted">{selectedProduct?.product_images?.[0]?.public_url ? <img src={selectedProduct.product_images[0].public_url} alt={selectedProduct.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center px-5 text-center text-xs font-semibold text-muted-foreground">Chưa chọn sản phẩm</div>}</div><p className="mt-3 text-sm font-bold text-primary">{slot.label}</p><p className="mt-1 text-xs text-muted-foreground">{slot.detail}</p><label className="mt-3 block text-xs font-bold uppercase tracking-[.1em] text-muted-foreground"><span className="sr-only">Chọn sản phẩm cho {slot.label}</span><select value={selectedId || ""} onChange={(event) => setFeaturedSlots((current) => ({ ...current, [slot.position]: event.target.value || null }))} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 text-sm font-semibold normal-case tracking-normal"><option value="">Bỏ chọn</option>{validFeaturedCandidates.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.product_type === "bouquet" ? "Bó hoa" : "Giỏ hoa"}</option>)}</select></label></div>; })}</div></section>
       <div className="mt-6 grid gap-3 md:grid-cols-[1fr_auto_auto]"><label className="flex min-h-11 items-center gap-2 rounded-full border border-border bg-background px-4"><Search size={16} className="text-muted-foreground" /><span className="sr-only">Tìm sản phẩm</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm tên, SKU hoặc slug..." className="min-w-0 flex-1 bg-transparent text-sm outline-none" /></label><select aria-label="Lọc trạng thái" value={status} onChange={(event) => setStatus(event.target.value as "all" | Status)} className="min-h-11 rounded-full border border-border bg-background px-4 text-sm font-semibold"><option value="all">Tất cả trạng thái</option>{Object.entries(statusLabel).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select aria-label="Lọc loại sản phẩm" value={type} onChange={(event) => setType(event.target.value as "all" | ProductType)} className="min-h-11 rounded-full border border-border bg-background px-4 text-sm font-semibold"><option value="all">Tất cả loại</option><option value="bouquet">Bó hoa</option><option value="basket">Giỏ hoa</option></select><label className="flex min-h-11 items-center gap-2 rounded-full border border-border bg-background px-4 text-sm font-semibold"><input type="checkbox" checked={featuredOnly} onChange={(event) => setFeaturedOnly(event.target.checked)} className="h-4 w-4 accent-primary" /> Nổi bật</label></div>
       {(error || notice) && <p role={error ? "alert" : "status"} className={`mt-4 rounded-xl p-3 text-sm ${error ? "bg-[#fae8e4] text-danger" : "bg-[#e4ecdf] text-primary"}`}>{error || notice}</p>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visibleProducts.map((product) => <article key={product.id} className="overflow-hidden rounded-2xl border border-border bg-background"><div className="relative aspect-[4/3] bg-surface-muted">{product.product_images?.[0]?.public_url ? <img src={product.product_images[0].public_url} alt={product.product_images[0].alt_text || product.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><ImagePlus size={28} /></div>}<span className="absolute left-3 top-3 rounded-full bg-background/90 px-3 py-1 text-[11px] font-bold">{statusLabel[product.status]}</span></div><div className="p-4"><div className="flex items-start justify-between gap-3"><div><h2 className="font-display text-2xl leading-tight">{product.name}</h2><p className="mt-1 text-xs text-muted-foreground">{product.sku} · {product.product_type === "bouquet" ? "Bó hoa" : "Giỏ hoa"}</p></div><p className="shrink-0 text-sm font-bold text-primary">{money(product.sale_price_vnd ?? product.price_vnd)}đ</p></div><p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{product.description || "Chưa có mô tả."}</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => openEdit(product)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-bold text-white"><Pencil size={14} /> Chỉnh sửa</button>{product.status === "published" ? <button onClick={() => void lifecycle(product, "hide")} className="min-h-10 rounded-full border border-border px-4 py-2 text-xs font-bold">Ẩn</button> : product.status === "hidden" ? <><button onClick={() => void lifecycle(product, "show")} className="min-h-10 rounded-full border border-primary px-4 py-2 text-xs font-bold text-primary">Hiển thị</button><button onClick={() => void lifecycle(product, "archive")} className="min-h-10 rounded-full border border-border px-4 py-2 text-xs font-bold">Lưu trữ</button></> : product.status === "archived" ? <button onClick={() => void lifecycle(product, "restore")} className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border px-4 py-2 text-xs font-bold"><RotateCcw size={14} /> Khôi phục</button> : <><button onClick={() => void lifecycle(product, "show")} className="min-h-10 rounded-full border border-primary px-4 py-2 text-xs font-bold text-primary">Hiển thị</button><button onClick={() => void lifecycle(product, "archive")} className="min-h-10 rounded-full border border-border px-4 py-2 text-xs font-bold">Lưu trữ</button></>}</div></div></article>)}</div>{!visibleProducts.length && <div className="mt-8 rounded-2xl bg-background p-10 text-center text-sm text-muted-foreground">Chưa có sản phẩm phù hợp.</div>}
