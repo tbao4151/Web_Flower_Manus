@@ -104,40 +104,46 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   if (!await requireAdmin()) return NextResponse.json({ error: "Chỉ Admin mới có thể sửa sản phẩm." }, { status: 403 });
-  const body = await request.json().catch(() => null) as ({ id?: string } & Record<string, unknown>) | null;
-  if (!body?.id || !z.string().uuid().safeParse(body.id).success) return NextResponse.json({ error: "Thiếu ID sản phẩm." }, { status: 400 });
-  const parsed = productSchema.partial().safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "Thông tin sản phẩm chưa hợp lệ." }, { status: 400 });
-  if (parsed.data.salePriceVnd != null && parsed.data.priceVnd != null && parsed.data.salePriceVnd > parsed.data.priceVnd) return NextResponse.json({ error: "Giá sale không được cao hơn giá gốc." }, { status: 400 });
-  const supabase = createSupabaseAdminClient();
-  const { data: current, error: currentError } = await supabase.from("products").select("id, status").eq("id", body.id).single();
-  if (currentError || !current) return NextResponse.json({ error: "Không tìm thấy sản phẩm." }, { status: 404 });
-  if (parsed.data.status === "published" && !(await hasCoverImage(body.id))) return NextResponse.json({ error: "Không thể hiển thị sản phẩm khi chưa có ảnh cover." }, { status: 400 });
-  const { categoryIds, toneIds, occasionIds, productType, priceVnd, salePriceVnd, status, saleMode, preorderMinHours, showWhenOutOfStock, ...rest } = parsed.data;
-  const values: Record<string, unknown> = {
-    ...rest,
-    ...(typeof rest.sku === "string" ? { sku: rest.sku.normalize("NFC") } : {}),
-    ...(typeof rest.name === "string" ? { name: rest.name.normalize("NFC") } : {}),
-    ...(typeof rest.description === "string" ? { description: rest.description.normalize("NFC") } : {}),
-    ...(typeof rest.composition === "string" ? { composition: rest.composition.normalize("NFC") } : {}),
-    updated_at: new Date().toISOString(),
-  };
-  if (productType !== undefined) values.product_type = productType;
-  if (priceVnd !== undefined) values.price_vnd = priceVnd;
-  if (salePriceVnd !== undefined) values.sale_price_vnd = salePriceVnd;
-  if (saleMode !== undefined) values.sale_mode = saleMode;
-  if (preorderMinHours !== undefined) values.preorder_min_hours = preorderMinHours;
-  if (showWhenOutOfStock !== undefined) values.show_when_out_of_stock = showWhenOutOfStock;
-  if (status !== undefined) {
-    values.status = status;
-    values.archived_at = status === "archived" ? new Date().toISOString() : null;
-  }
   try {
+    const body = await request.json().catch(() => null) as ({ id?: string } & Record<string, unknown>) | null;
+    if (!body?.id || !z.string().uuid().safeParse(body.id).success) return NextResponse.json({ error: "Thiếu ID sản phẩm." }, { status: 400 });
+    const parsed = productSchema.partial().safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: "Thông tin sản phẩm chưa hợp lệ." }, { status: 400 });
+    if (parsed.data.salePriceVnd != null && parsed.data.priceVnd != null && parsed.data.salePriceVnd > parsed.data.priceVnd) return NextResponse.json({ error: "Giá sale không được cao hơn giá gốc." }, { status: 400 });
+    const supabase = createSupabaseAdminClient();
+    const { data: current, error: currentError } = await supabase.from("products").select("id, status").eq("id", body.id).single();
+    if (currentError || !current) return NextResponse.json({ error: "Không tìm thấy sản phẩm." }, { status: 404 });
+    if (parsed.data.status === "published" && !(await hasCoverImage(body.id))) return NextResponse.json({ error: "Không thể hiển thị sản phẩm khi chưa có ảnh cover." }, { status: 400 });
+    const { categoryIds, toneIds, occasionIds, productType, priceVnd, salePriceVnd, status, saleMode, preorderMinHours, showWhenOutOfStock, ...rest } = parsed.data;
+    const values: Record<string, unknown> = {
+      ...rest,
+      ...(typeof rest.sku === "string" ? { sku: rest.sku.normalize("NFC") } : {}),
+      ...(typeof rest.name === "string" ? { name: rest.name.normalize("NFC") } : {}),
+      ...(typeof rest.description === "string" ? { description: rest.description.normalize("NFC") } : {}),
+      ...(typeof rest.composition === "string" ? { composition: rest.composition.normalize("NFC") } : {}),
+      updated_at: new Date().toISOString(),
+    };
+    if (productType !== undefined) values.product_type = productType;
+    if (priceVnd !== undefined) values.price_vnd = priceVnd;
+    if (salePriceVnd !== undefined) values.sale_price_vnd = salePriceVnd;
+    if (saleMode !== undefined) values.sale_mode = saleMode;
+    if (preorderMinHours !== undefined) values.preorder_min_hours = preorderMinHours;
+    if (showWhenOutOfStock !== undefined) values.show_when_out_of_stock = showWhenOutOfStock;
+    if (status !== undefined) {
+      values.status = status;
+      values.archived_at = status === "archived" ? new Date().toISOString() : null;
+    }
     const { data, error } = await supabase.from("products").update(values).eq("id", body.id).select(adminProductSelect).single();
-    if (error || !data) return NextResponse.json({ error: "Không thể cập nhật sản phẩm." }, { status: 500 });
+    if (error || !data) {
+      console.error("[admin/products PATCH] update failed", { productId: body.id, error: error?.message, code: error?.code });
+      return NextResponse.json({ error: "Không thể cập nhật sản phẩm." }, { status: 500 });
+    }
     await syncRelations(body.id, { categoryIds, toneIds, occasionIds });
     return NextResponse.json({ product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) });
-  } catch { return NextResponse.json({ error: "Không thể cập nhật sản phẩm hoặc taxonomy." }, { status: 400 }); }
+  } catch (error) {
+    console.error("[admin/products PATCH] unhandled failure", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "Không thể cập nhật sản phẩm hoặc taxonomy." }, { status: 500 });
+  }
 }
 
 export async function DELETE(request: Request) {
