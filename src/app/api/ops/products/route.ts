@@ -15,12 +15,19 @@ const productSchema = z.object({
   composition: z.string().trim().max(1000).nullable().optional(),
   featured: z.boolean().default(false),
   status: z.enum(["draft", "published", "hidden", "archived"]).default("draft"),
+  saleMode: z.enum(["ready_stock", "preorder"]).default("ready_stock"),
+  preorderMinHours: z.number().int().min(1).max(720).nullable().optional(),
+  showWhenOutOfStock: z.boolean().default(false),
   categoryIds: ids,
   toneIds: ids,
   occasionIds: ids,
+}).superRefine((value, context) => {
+  if (value.saleMode === "preorder" && !value.preorderMinHours) {
+    context.addIssue({ code: "custom", path: ["preorderMinHours"], message: "Sản phẩm đặt trước cần thời gian chuẩn bị tối thiểu." });
+  }
 });
 
-const adminProductSelect = "id, sku, slug, name, product_type, price_vnd, sale_price_vnd, description, composition, featured, status, archived_at, source_caption, source_reference, created_at, updated_at, product_images(id, storage_path, alt_text, display_order, is_cover, mime_type, created_at), product_categories(category_id), product_tones(tone_id), product_occasions(occasion_id)";
+const adminProductSelect = "id, sku, slug, name, product_type, price_vnd, sale_price_vnd, description, composition, featured, status, sale_mode, preorder_min_hours, show_when_out_of_stock, archived_at, source_caption, source_reference, created_at, updated_at, product_images(id, storage_path, alt_text, display_order, is_cover, mime_type, created_at), product_categories(category_id), product_tones(tone_id), product_occasions(occasion_id)";
 const bucket = "product-images";
 
 const withPublicImageUrls = (supabase: ReturnType<typeof createSupabaseAdminClient>, product: Record<string, unknown>) => ({
@@ -88,7 +95,7 @@ export async function POST(request: Request) {
   };
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase.from("products").insert({ sku: normalizedProduct.sku, slug: normalizedProduct.slug, name: normalizedProduct.name, product_type: normalizedProduct.productType, price_vnd: normalizedProduct.priceVnd, sale_price_vnd: normalizedProduct.salePriceVnd ?? null, description: normalizedProduct.description, composition: normalizedProduct.composition ?? null, featured: normalizedProduct.featured, status: normalizedProduct.status }).select(adminProductSelect).single();
+    const { data, error } = await supabase.from("products").insert({ sku: normalizedProduct.sku, slug: normalizedProduct.slug, name: normalizedProduct.name, product_type: normalizedProduct.productType, price_vnd: normalizedProduct.priceVnd, sale_price_vnd: normalizedProduct.salePriceVnd ?? null, description: normalizedProduct.description,       composition: normalizedProduct.composition ?? null, featured: normalizedProduct.featured, status: normalizedProduct.status, sale_mode: normalizedProduct.saleMode, preorder_min_hours: normalizedProduct.preorderMinHours ?? null, show_when_out_of_stock: normalizedProduct.showWhenOutOfStock }).select(adminProductSelect).single();
     if (error || !data) return NextResponse.json({ error: "Không thể tạo sản phẩm. SKU hoặc slug có thể đã tồn tại." }, { status: 409 });
     await syncRelations(data.id, { categoryIds, toneIds, occasionIds });
     return NextResponse.json({ product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) }, { status: 201 });
@@ -106,7 +113,7 @@ export async function PATCH(request: Request) {
   const { data: current, error: currentError } = await supabase.from("products").select("id, status").eq("id", body.id).single();
   if (currentError || !current) return NextResponse.json({ error: "Không tìm thấy sản phẩm." }, { status: 404 });
   if (parsed.data.status === "published" && !(await hasCoverImage(body.id))) return NextResponse.json({ error: "Không thể hiển thị sản phẩm khi chưa có ảnh cover." }, { status: 400 });
-  const { categoryIds, toneIds, occasionIds, productType, priceVnd, salePriceVnd, status, ...rest } = parsed.data;
+  const { categoryIds, toneIds, occasionIds, productType, priceVnd, salePriceVnd, status, saleMode, preorderMinHours, showWhenOutOfStock, ...rest } = parsed.data;
   const values: Record<string, unknown> = {
     ...rest,
     ...(typeof rest.sku === "string" ? { sku: rest.sku.normalize("NFC") } : {}),
@@ -118,6 +125,9 @@ export async function PATCH(request: Request) {
   if (productType !== undefined) values.product_type = productType;
   if (priceVnd !== undefined) values.price_vnd = priceVnd;
   if (salePriceVnd !== undefined) values.sale_price_vnd = salePriceVnd;
+  if (saleMode !== undefined) values.sale_mode = saleMode;
+  if (preorderMinHours !== undefined) values.preorder_min_hours = preorderMinHours;
+  if (showWhenOutOfStock !== undefined) values.show_when_out_of_stock = showWhenOutOfStock;
   if (status !== undefined) {
     values.status = status;
     values.archived_at = status === "archived" ? new Date().toISOString() : null;

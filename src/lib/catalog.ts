@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { availabilityStatusFromQuantity, type AvailabilityStatus, type SaleMode } from "@/lib/inventory";
 import { products as fallbackProducts, type Product, type ProductType } from "@/lib/products";
 
 export type CatalogProductRow = {
@@ -13,42 +14,25 @@ export type CatalogProductRow = {
   composition: string | null;
   featured: boolean;
   status: "draft" | "published" | "hidden" | "archived";
+  sale_mode: SaleMode;
+  preorder_min_hours: number | null;
+  show_when_out_of_stock: boolean;
   source_caption: string | null;
   source_reference: string | null;
   created_at: string;
-  product_images?: Array<{
-    id: string;
-    storage_path: string;
-    alt_text: string;
-    display_order: number;
-    is_cover: boolean;
-  }>;
+  product_images?: Array<{ id: string; storage_path: string; alt_text: string; display_order: number; is_cover: boolean }>;
   product_categories?: Array<{ category_id: string }>;
   product_tones?: Array<{ tone_id: string }>;
   product_occasions?: Array<{ occasion_id: string }>;
 };
 
 type TaxonomyRow = { id: string; name: string; slug: string };
+type CatalogAvailability = { quantity: number; status: AvailabilityStatus };
 
 export const publicProductSelect = [
-  "id",
-  "sku",
-  "slug",
-  "name",
-  "product_type",
-  "price_vnd",
-  "sale_price_vnd",
-  "description",
-  "composition",
-  "featured",
-  "status",
-  "source_caption",
-  "source_reference",
-  "created_at",
+  "id", "sku", "slug", "name", "product_type", "price_vnd", "sale_price_vnd", "description", "composition", "featured", "status", "sale_mode", "preorder_min_hours", "show_when_out_of_stock", "source_caption", "source_reference", "created_at",
   "product_images(id, storage_path, alt_text, display_order, is_cover)",
-  "product_categories(category_id)",
-  "product_tones(tone_id)",
-  "product_occasions(occasion_id)",
+  "product_categories(category_id)", "product_tones(tone_id)", "product_occasions(occasion_id)",
 ].join(", ");
 
 const publicUrlForPath = (supabase: SupabaseClient, storagePath: string) => {
@@ -64,6 +48,8 @@ export function mapCatalogProduct(
   supabase: SupabaseClient,
   row: CatalogProductRow,
   taxonomies: { categories: Map<string, TaxonomyRow>; tones: Map<string, TaxonomyRow>; occasions: Map<string, TaxonomyRow> },
+  availability?: CatalogAvailability,
+  inventoryConfigured = true,
 ): Product {
   const images = [...(row.product_images || [])].sort((a, b) => a.display_order - b.display_order || a.id.localeCompare(b.id));
   const cover = images.find((image) => image.is_cover) || images[0];
@@ -85,6 +71,10 @@ export function mapCatalogProduct(
     occasions: taxonomyNames(row.product_occasions, "occasion_id", taxonomies.occasions),
     featured: row.featured,
     status: row.status === "draft" ? "hidden" : row.status,
+    ...(inventoryConfigured ? { availabilityStatus: availability?.status, availableQuantity: availability?.quantity, inventoryConfigured: true } : { inventoryConfigured: false }),
+    saleMode: row.sale_mode,
+    ...(row.preorder_min_hours != null ? { preorderMinHours: row.preorder_min_hours } : {}),
+    showWhenOutOfStock: row.show_when_out_of_stock,
     sourceCaption: row.source_caption || "",
     sourceReference: row.source_reference || "",
     sourceDate: row.created_at.slice(0, 10),
@@ -95,19 +85,39 @@ export async function fetchCatalogProducts(supabase: SupabaseClient, options: { 
   let query = supabase.from("products").select(publicProductSelect).order("featured", { ascending: false }).order("created_at", { ascending: false });
   if (options.slug) query = query.eq("slug", options.slug);
   if (options.publishedOnly !== false) query = query.eq("status", "published");
-  const [productResult, categoryResult, toneResult, occasionResult] = await Promise.all([
+  const [productResult, categoryResult, toneResult, occasionResult, settingsResult] = await Promise.all([
     query,
     supabase.from("categories").select("id, name, slug").eq("is_active", true),
     supabase.from("color_tones").select("id, name, slug").eq("is_active", true),
     supabase.from("occasions").select("id, name, slug").eq("is_active", true),
+    supabase.from("shop_settings").select("low_stock_threshold").eq("key", "inventory").maybeSingle(),
   ]);
   if (productResult.error) throw productResult.error;
+  const rows = (productResult.data || []) as unknown as CatalogProductRow[];
+  const recipeResult = rows.length
+    ? await supabase.from("product_ingredients").select("product_id").in("product_id", rows.map((row) => row.id))
+    : { data: [], error: null };
+  if (recipeResult.error) throw recipeResult.error;
+  const configuredProductIds = new Set((recipeResult.data || []).map((item) => item.product_id));
   const taxonomies = {
     categories: new Map((categoryResult.data || []).map((item) => [item.id, item as TaxonomyRow])),
     tones: new Map((toneResult.data || []).map((item) => [item.id, item as TaxonomyRow])),
     occasions: new Map((occasionResult.data || []).map((item) => [item.id, item as TaxonomyRow])),
   };
-  return ((productResult.data || []) as unknown as CatalogProductRow[]).map((row) => mapCatalogProduct(supabase, row, taxonomies));
+  const lowStockThreshold = Math.max(0, Number(settingsResult.data?.low_stock_threshold ?? 2));
+  const availabilityEntries = await Promise.all(rows.filter((row) => configuredProductIds.has(row.id)).map(async (row) => {
+    const { data, error } = await supabase.rpc("compute_product_availability", { target_product_id: row.id });
+    if (error) throw error;
+    const quantity = Math.max(0, Number(data || 0));
+    return [row.id, { quantity, status: availabilityStatusFromQuantity(quantity, lowStockThreshold) }] as const;
+  }));
+  const availability = new Map(availabilityEntries);
+  return rows
+    .map((row) => mapCatalogProduct(supabase, row, taxonomies, availability.get(row.id), configuredProductIds.has(row.id)))
+    .filter((product) => {
+      if (options.publishedOnly === false || product.status !== "published" || !product.inventoryConfigured) return true;
+      return product.saleMode === "preorder" || product.availabilityStatus !== "OUT_OF_STOCK" || product.showWhenOutOfStock;
+    });
 }
 
 export const fallbackCatalogProducts = fallbackProducts;

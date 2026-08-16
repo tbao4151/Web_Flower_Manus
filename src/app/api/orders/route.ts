@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser, normalizedPhoneSchema } from "@/lib/auth";
 import { normalizeDeliveryTime } from "@/lib/delivery";
+import { formatPreorderLeadTime, receiveDateTimeFromDelivery } from "@/lib/inventory";
 import { createSupabaseAdminClient } from "@/lib/supabase-server";
 
 const checkoutSchema = z.object({
@@ -55,17 +56,40 @@ export async function POST(request: Request) {
     const requestedItems = Array.from(parsed.data.items.reduce((map, item) => map.set(item.productId, (map.get(item.productId) ?? 0) + item.quantity), new Map<string, number>()).entries()).map(([productId, quantity]) => ({ productId, quantity }));
     if (requestedItems.some((item) => item.quantity > 20)) return NextResponse.json({ error: "Số lượng mỗi sản phẩm không được vượt quá 20." }, { status: 400 });
     const ids = requestedItems.map((item) => item.productId);
-    const { data: catalog, error: catalogError } = await supabase.from("products").select("id, sku, name, price_vnd, sale_price_vnd, status, product_type").in("id", ids);
+    const { data: catalog, error: catalogError } = await supabase.from("products").select("id, sku, name, price_vnd, sale_price_vnd, status, product_type, sale_mode, preorder_min_hours").in("id", ids);
     if (catalogError) return NextResponse.json({ error: "Không thể kiểm tra sản phẩm hiện tại. Vui lòng thử lại sau." }, { status: 500 });
     if (!catalog || catalog.length !== ids.length) return NextResponse.json({ error: "Một sản phẩm trong giỏ không còn khả dụng." }, { status: 409 });
 
     const catalogById = new Map(catalog.map((item) => [item.id, item]));
+    const receiveAt = receiveDateTimeFromDelivery(parsed.data.checkout.deliveryDate, parsed.data.checkout.deliveryTime);
+    if (!receiveAt || receiveAt.getTime() <= Date.now()) return NextResponse.json({ error: "Thời gian nhận hoa phải ở trong tương lai." }, { status: 400 });
+    const preorderHours = catalog.reduce((max, item) => item.sale_mode === "preorder" ? Math.max(max, Number(item.preorder_min_hours || 0)) : max, 0);
+    if (preorderHours > 0 && receiveAt.getTime() - Date.now() < preorderHours * 60 * 60 * 1000) {
+      return NextResponse.json({ error: `Giỏ hàng có mẫu đặt trước, cần đặt trước ${formatPreorderLeadTime(preorderHours)}.`, preorderRequiredHours: preorderHours }, { status: 409 });
+    }
     const lines = requestedItems.map((item) => {
       const product = catalogById.get(item.productId);
       if (!product || product.status !== "published") throw new Error("PRODUCT_UNAVAILABLE");
       const unitPrice = product.sale_price_vnd ?? product.price_vnd;
       return { ...item, product, unitPrice, lineTotal: unitPrice * item.quantity };
     });
+    const recipeResult = await supabase.from("product_ingredients").select("product_id, inventory_item_id, quantity_required").in("product_id", ids);
+    if (recipeResult.error) return NextResponse.json({ error: "Không thể kiểm tra khả dụng nguyên liệu." }, { status: 500 });
+    const recipes = (recipeResult.data || []) as Array<{ product_id: string; inventory_item_id: string; quantity_required: number }>;
+    const configuredReadyProductIds = new Set(catalog.filter((item) => item.sale_mode === "ready_stock").map((item) => item.id).filter((id) => recipes.some((recipe) => recipe.product_id === id)));
+    if (configuredReadyProductIds.size) {
+      const ingredientIds = Array.from(new Set(recipes.filter((recipe) => configuredReadyProductIds.has(recipe.product_id)).map((recipe) => recipe.inventory_item_id)));
+      const { data: inventoryItems, error: inventoryError } = await supabase.from("inventory_items").select("id, quantity_on_hand, quantity_reserved, is_active").in("id", ingredientIds);
+      if (inventoryError) return NextResponse.json({ error: "Không thể kiểm tra tồn kho hiện tại." }, { status: 500 });
+      const inventoryById = new Map((inventoryItems || []).map((item) => [item.id, item]));
+      for (const ingredientId of ingredientIds) {
+        const required = recipes.filter((recipe) => recipe.inventory_item_id === ingredientId && configuredReadyProductIds.has(recipe.product_id)).reduce((total, recipe) => total + recipe.quantity_required * (requestedItems.find((item) => item.productId === recipe.product_id)?.quantity || 0), 0);
+        const stock = inventoryById.get(ingredientId);
+        if (!stock || !stock.is_active || Number(stock.quantity_on_hand) - Number(stock.quantity_reserved) < required) {
+          return NextResponse.json({ error: "Một sản phẩm trong giỏ hiện không đủ nguyên liệu. Vui lòng giảm số lượng hoặc chọn mẫu đặt trước." }, { status: 409 });
+        }
+      }
+    }
     const subtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
     const shippingVnd = 0;
     const totalVnd = subtotal;

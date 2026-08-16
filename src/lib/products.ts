@@ -1,3 +1,5 @@
+import type { AvailabilityStatus, SaleMode } from "@/lib/inventory";
+
 export type ProductType = "bouquet" | "basket";
 
 export type Product = {
@@ -17,6 +19,12 @@ export type Product = {
   occasions: string[];
   featured?: boolean;
   status: "published" | "hidden" | "archived";
+  availabilityStatus?: AvailabilityStatus;
+  availableQuantity?: number;
+  inventoryConfigured?: boolean;
+  saleMode?: SaleMode;
+  preorderMinHours?: number;
+  showWhenOutOfStock?: boolean;
   sourceCaption: string;
   sourceReference: string;
   sourceDate: string;

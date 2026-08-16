@@ -48,6 +48,21 @@ export async function PATCH(request: Request) {
     if (!transitions[existing.status]?.includes(parsed.data.status)) return NextResponse.json({ error: "Không thể chuyển trạng thái theo quy trình." }, { status: 409 });
     const { error } = await supabase.from("orders").update({ status: parsed.data.status, updated_at: new Date().toISOString() }).eq("id", parsed.data.orderId);
     if (error) return NextResponse.json({ error: "Không thể cập nhật đơn." }, { status: 500 });
+    if (parsed.data.status === "confirmed") {
+      const { error: reserveError } = await supabase.rpc("reserve_stock_for_order", { target_order_id: parsed.data.orderId });
+      if (reserveError) {
+        await supabase.from("orders").update({ status: existing.status, updated_at: new Date().toISOString() }).eq("id", parsed.data.orderId);
+        if (reserveError.message.includes("insufficient_stock")) return NextResponse.json({ error: "Không đủ nguyên liệu để xác nhận đơn. Vui lòng điều chỉnh tồn kho hoặc liên hệ khách." }, { status: 409 });
+        return NextResponse.json({ error: "Không thể giữ nguyên liệu cho đơn." }, { status: 409 });
+      }
+    }
+    if (parsed.data.status === "cancelled" && existing.status !== "pending_confirmation") {
+      const { error: releaseError } = await supabase.rpc("release_stock_for_order", { target_order_id: parsed.data.orderId });
+      if (releaseError) {
+        await supabase.from("orders").update({ status: existing.status, updated_at: new Date().toISOString() }).eq("id", parsed.data.orderId);
+        return NextResponse.json({ error: "Không thể hoàn trả nguyên liệu cho đơn." }, { status: 409 });
+      }
+    }
     await supabase.from("order_status_history").insert({ order_id: parsed.data.orderId, from_status: existing.status, to_status: parsed.data.status, actor_id: current.user.id, note: parsed.data.note });
     return NextResponse.json({ ok: true });
   } catch {
