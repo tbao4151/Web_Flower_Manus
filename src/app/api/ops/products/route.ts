@@ -146,8 +146,9 @@ export async function PATCH(request: Request) {
     }
     return NextResponse.json({ product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) });
   } catch (error) {
-    console.error("[admin/products PATCH] unhandled failure", error instanceof Error ? error.message : error);
-    return NextResponse.json({ error: "Không thể cập nhật sản phẩm hoặc taxonomy." }, { status: 500 });
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("[admin/products PATCH] unhandled failure", detail);
+    return NextResponse.json({ error: "Không thể cập nhật sản phẩm hoặc taxonomy.", detail: detail.slice(0, 240) }, { status: 500 });
   }
 }
 
