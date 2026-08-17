@@ -44,6 +44,43 @@ const productPatchSchema = productSchemaBase.extend({
 const adminProductSelect = "id, sku, slug, name, product_type, price_vnd, sale_price_vnd, description, composition, featured, status, sale_mode, preorder_min_hours, show_when_out_of_stock, archived_at, source_caption, source_reference, created_at, updated_at, product_images(id, storage_path, alt_text, display_order, is_cover, mime_type, created_at), product_categories(category_id), product_tones(tone_id), product_occasions(occasion_id)";
 const bucket = "product-images";
 
+type SupabaseErrorLike = { code?: string; message?: string; details?: string; hint?: string };
+
+function supabaseErrorFields(error: unknown): SupabaseErrorLike {
+  const value = (error || {}) as SupabaseErrorLike;
+  return { code: value.code, message: value.message, details: value.details, hint: value.hint };
+}
+
+function logSupabaseError(context: string, error: unknown) {
+  console.error(context, supabaseErrorFields(error));
+}
+
+function apiError(status: number, code: string, message: string, details?: Record<string, unknown>) {
+  return NextResponse.json({ success: false, error: { code, message, ...(details ? { details } : {}) } }, { status });
+}
+
+async function validateTaxonomyReferences(data: { categoryIds?: string[]; toneIds?: string[]; occasionIds?: string[] }) {
+  const supabase = createSupabaseAdminClient();
+  const checks = [
+    { ids: data.categoryIds, table: "categories", code: "PRODUCT_CATEGORY_NOT_FOUND", label: "danh mục" },
+    { ids: data.toneIds, table: "color_tones", code: "PRODUCT_TONE_NOT_FOUND", label: "tone màu" },
+    { ids: data.occasionIds, table: "occasions", code: "PRODUCT_OCCASION_NOT_FOUND", label: "dịp tặng" },
+  ] as const;
+  for (const check of checks) {
+    const ids = [...new Set(check.ids || [])];
+    if (!ids.length) continue;
+    const { data: rows, error } = await supabase.from(check.table).select("id").in("id", ids);
+    if (error) {
+      logSupabaseError(`[admin/products] taxonomy lookup failed: ${check.table}`, error);
+      return { status: 503, code: "PRODUCT_TAXONOMY_LOOKUP_FAILED", message: `Không thể kiểm tra ${check.label}. Vui lòng thử lại.` };
+    }
+    const found = new Set((rows || []).map((row) => String(row.id)));
+    const missing = ids.filter((id) => !found.has(id));
+    if (missing.length) return { status: 400, code: check.code, message: `Không tìm thấy ${check.label} đã chọn.`, details: { missingIds: missing } };
+  }
+  return null;
+}
+
 const withPublicImageUrls = (supabase: ReturnType<typeof createSupabaseAdminClient>, product: Record<string, unknown>) => ({
   ...product,
   product_images: Array.isArray(product.product_images) ? (product.product_images as Array<Record<string, unknown>>).sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0)).map((image) => ({ ...image, public_url: supabase.storage.from(bucket).getPublicUrl(String(image.storage_path || "")).data.publicUrl })) : [],
@@ -97,9 +134,12 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!await requireAdmin()) return NextResponse.json({ error: "Chỉ Admin mới có thể tạo sản phẩm." }, { status: 403 });
   const parsed = productSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success || (parsed.data.salePriceVnd != null && parsed.data.salePriceVnd > parsed.data.priceVnd)) return NextResponse.json({ error: "Thông tin sản phẩm chưa hợp lệ." }, { status: 400 });
-  if (parsed.data.status === "published") return NextResponse.json({ error: "Hãy lưu sản phẩm nháp, tải ít nhất một ảnh rồi mới bật hiển thị." }, { status: 400 });
+  if (!parsed.success) return apiError(400, "PRODUCT_VALIDATION_ERROR", "Thông tin sản phẩm chưa hợp lệ.", { issues: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.message })) });
+  if (parsed.data.salePriceVnd != null && parsed.data.salePriceVnd > parsed.data.priceVnd) return apiError(400, "PRODUCT_SALE_PRICE_INVALID", "Giá sale không được cao hơn giá gốc.", { priceVnd: parsed.data.priceVnd, salePriceVnd: parsed.data.salePriceVnd });
+  if (parsed.data.status === "published") return apiError(400, "PRODUCT_PUBLISH_REQUIRES_IMAGE", "Hãy lưu sản phẩm nháp, tải ít nhất một ảnh rồi mới bật hiển thị.");
   const { categoryIds, toneIds, occasionIds, ...product } = parsed.data;
+  const taxonomyError = await validateTaxonomyReferences({ categoryIds, toneIds, occasionIds });
+  if (taxonomyError) return apiError(taxonomyError.status, taxonomyError.code, taxonomyError.message, "details" in taxonomyError ? taxonomyError.details : undefined);
   const normalizedProduct = {
     ...product,
     sku: product.sku.normalize("NFC"),
@@ -109,11 +149,25 @@ export async function POST(request: Request) {
   };
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase.from("products").insert({ sku: normalizedProduct.sku, slug: normalizedProduct.slug, name: normalizedProduct.name, product_type: normalizedProduct.productType, price_vnd: normalizedProduct.priceVnd, sale_price_vnd: normalizedProduct.salePriceVnd ?? null, description: normalizedProduct.description,       composition: normalizedProduct.composition ?? null, featured: normalizedProduct.featured, status: normalizedProduct.status, sale_mode: normalizedProduct.saleMode, preorder_min_hours: normalizedProduct.preorderMinHours ?? null, show_when_out_of_stock: normalizedProduct.showWhenOutOfStock }).select(adminProductSelect).single();
-    if (error || !data) return NextResponse.json({ error: "Không thể tạo sản phẩm. SKU hoặc slug có thể đã tồn tại." }, { status: 409 });
-    await syncRelations(data.id, { categoryIds, toneIds, occasionIds });
-    return NextResponse.json({ product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) }, { status: 201 });
-  } catch { return NextResponse.json({ error: "Không thể lưu sản phẩm hoặc taxonomy." }, { status: 400 }); }
+    const { data, error } = await supabase.from("products").insert({ sku: normalizedProduct.sku, slug: normalizedProduct.slug, name: normalizedProduct.name, product_type: normalizedProduct.productType, price_vnd: normalizedProduct.priceVnd, sale_price_vnd: normalizedProduct.salePriceVnd ?? null, description: normalizedProduct.description, composition: normalizedProduct.composition ?? null, featured: normalizedProduct.featured, status: normalizedProduct.status, sale_mode: normalizedProduct.saleMode, preorder_min_hours: normalizedProduct.preorderMinHours ?? null, show_when_out_of_stock: normalizedProduct.showWhenOutOfStock }).select(adminProductSelect).single();
+    if (error || !data) {
+      logSupabaseError("[admin/products POST] product insert failed", error);
+      if (error?.code === "23505") return apiError(409, "PRODUCT_DUPLICATE_SKU_OR_SLUG", "SKU hoặc slug đã tồn tại. Vui lòng dùng giá trị khác.");
+      return apiError(500, "PRODUCT_CREATE_FAILED", "Không thể tạo sản phẩm do lỗi cơ sở dữ liệu.");
+    }
+    try {
+      await syncRelations(data.id, { categoryIds, toneIds, occasionIds });
+    } catch (error) {
+      logSupabaseError("[admin/products POST] taxonomy relation sync failed", error);
+      const { error: cleanupError } = await supabase.from("products").delete().eq("id", data.id);
+      if (cleanupError) logSupabaseError("[admin/products POST] cleanup after relation failure failed", cleanupError);
+      return apiError(400, "PRODUCT_RELATIONS_INVALID", "Không thể liên kết taxonomy cho sản phẩm; dữ liệu tạm thời đã được hoàn tác.");
+    }
+    return NextResponse.json({ success: true, product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) }, { status: 201 });
+  } catch (error) {
+    logSupabaseError("[admin/products POST] unhandled failure", error);
+    return apiError(500, "PRODUCT_CREATE_UNAVAILABLE", "Dịch vụ tạo sản phẩm tạm thời không khả dụng.");
+  }
 }
 
 export async function PATCH(request: Request) {
@@ -176,11 +230,20 @@ export async function DELETE(request: Request) {
     const supabase = createSupabaseAdminClient();
     const { data: paths, error } = await supabase.rpc("permanently_delete_product", { target_product_id: id });
     if (error) {
-      if (error.message.includes("product_has_orders")) return NextResponse.json({ error: "Sản phẩm đã xuất hiện trong đơn hàng nên không thể xoá vĩnh viễn. Hãy ẩn hoặc lưu trữ sản phẩm." }, { status: 409 });
-      return NextResponse.json({ error: "Không thể xoá vĩnh viễn sản phẩm." }, { status: 400 });
+      logSupabaseError("[admin/products DELETE] permanent delete failed", error);
+      if (error.message.includes("product_has_orders")) {
+        const { count, error: countError } = await supabase.from("order_items").select("id", { count: "exact", head: true }).eq("product_id", id);
+        if (countError) logSupabaseError("[admin/products DELETE] order dependency count failed", countError);
+        return apiError(409, "PRODUCT_DELETE_CONFLICT", "Không thể xoá sản phẩm vì sản phẩm đã được sử dụng trong đơn hàng. Hãy ẩn hoặc lưu trữ sản phẩm.", { orderCount: count ?? null, recommendedAction: "archive_or_hide" });
+      }
+      if (error.message.includes("product_not_found")) return apiError(404, "PRODUCT_NOT_FOUND", "Không tìm thấy sản phẩm cần xoá.");
+      return apiError(400, "PRODUCT_DELETE_FAILED", "Không thể xoá vĩnh viễn sản phẩm do còn dependency hoặc lỗi dữ liệu.");
     }
     const storagePaths = (paths || []).map((item: { storage_path: string }) => item.storage_path).filter(Boolean);
     if (storagePaths.length) await supabase.storage.from(bucket).remove(storagePaths);
-    return NextResponse.json({ ok: true, deleted: true });
-  } catch { return NextResponse.json({ error: "Dịch vụ sản phẩm tạm thời không khả dụng." }, { status: 503 }); }
+    return NextResponse.json({ success: true, ok: true, deleted: true });
+  } catch (error) {
+    logSupabaseError("[admin/products DELETE] unhandled failure", error);
+    return apiError(503, "PRODUCT_DELETE_UNAVAILABLE", "Dịch vụ xoá sản phẩm tạm thời không khả dụng.");
+  }
 }

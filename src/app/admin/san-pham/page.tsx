@@ -19,6 +19,14 @@ const money = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 const statusLabel: Record<Status, string> = { draft: "Bản nháp", published: "Đang hiển thị", hidden: "Đã ẩn", archived: "Đã lưu trữ" };
 const featuredSlotLabels = [{ position: 1 as const, label: "Vị trí 1 – Ảnh lớn", detail: "Ảnh lớn bên trái" }, { position: 2 as const, label: "Vị trí 2 – Ảnh trên bên phải", detail: "Ảnh nhỏ phía trên" }, { position: 3 as const, label: "Vị trí 3 – Ảnh dưới bên phải", detail: "Ảnh nhỏ phía dưới" }];
 
+function apiErrorMessage(result: unknown, fallback: string) {
+  if (!result || typeof result !== "object") return fallback;
+  const error = (result as { error?: unknown }).error;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") return (error as { message: string }).message;
+  return fallback;
+}
+
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [taxonomies, setTaxonomies] = useState<{ categories: Taxonomy[]; tones: Taxonomy[]; occasions: Taxonomy[] }>({ categories: [], tones: [], occasions: [] });
@@ -46,7 +54,7 @@ export default function AdminProductsPage() {
     if (status !== "all") params.set("status", status);
     const response = await fetch(`/api/ops/products?${params.toString()}`, { cache: "no-store" });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(result.error || "Không thể tải sản phẩm."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể tải sản phẩm.")); return; }
     const loaded = (result.products || []) as Product[];
     setProducts(loaded);
     const id = nextSelectedId || selected?.id;
@@ -56,7 +64,7 @@ export default function AdminProductsPage() {
   async function loadFeaturedSlots() {
     const response = await fetch("/api/admin/featured", { cache: "no-store" });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(result.error || "Không thể tải mẫu nổi bật."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể tải mẫu nổi bật.")); return; }
     const loaded = (result.products || []) as Product[];
     setFeaturedCandidates(loaded);
     setFeaturedSlots(loaded.reduce<FeaturedSlots>((slots, product) => {
@@ -70,7 +78,7 @@ export default function AdminProductsPage() {
     const response = await fetch("/api/admin/featured", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ positionOne: featuredSlots[1], positionTwo: featuredSlots[2], positionThree: featuredSlots[3] }) });
     const result = await response.json().catch(() => ({}));
     setFeaturedSaving(false);
-    if (!response.ok) { setError(result.error || "Không thể lưu mẫu nổi bật."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể lưu mẫu nổi bật.")); return; }
     setNotice("Đã lưu 3 mẫu nổi bật trang chủ.");
     await loadFeaturedSlots();
   }
@@ -120,7 +128,7 @@ export default function AdminProductsPage() {
     const response = await fetch(selected ? "/api/ops/products" : "/api/ops/products", { method: selected ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(selected ? { id: selected.id, ...payload } : payload) });
     const result = await response.json().catch(() => ({}));
     setSaving(false);
-    if (!response.ok) { setError(result.error || "Không thể lưu sản phẩm."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể lưu sản phẩm.")); return; }
     const id = result.product.id as string;
     setNotice("Đã lưu thông tin sản phẩm.");
     await loadProducts(id); setSelected((current) => current || result.product); setShowEditor(true); await loadInventoryEditor(id);
@@ -136,7 +144,7 @@ export default function AdminProductsPage() {
     if (ingredients.some((row) => !Number.isInteger(row.quantityRequired) || row.quantityRequired < 1)) { setError("Mỗi nguyên liệu phải có định lượng là số nguyên dương."); return; }
     const response = await fetch(`/api/admin/products/${selected.id}/recipe`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ingredients }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(result.error || "Không thể lưu công thức."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể lưu công thức.")); return; }
     setNotice("Đã lưu công thức sản phẩm.");
     await loadInventoryEditor(selected.id);
   }
@@ -149,7 +157,7 @@ export default function AdminProductsPage() {
       ? await fetch(`/api/ops/products?id=${product.id}`, { method: "DELETE" })
       : await fetch("/api/ops/products", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: product.id, status: action === "hide" ? "hidden" : action === "show" ? "published" : action === "archive" ? "archived" : "draft" }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(result.error || "Không thể thay đổi trạng thái sản phẩm."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể thay đổi trạng thái sản phẩm.")); return; }
     setNotice(action === "permanent" ? "Đã xoá sản phẩm." : "Đã cập nhật trạng thái sản phẩm.");
     if (action === "permanent") closeEditor();
     await loadProducts();
@@ -163,7 +171,7 @@ export default function AdminProductsPage() {
     const response = await fetch("/api/admin/images", { method: "POST", body: data });
     const result = await response.json().catch(() => ({}));
     setUploading(false); event.target.value = "";
-    if (!response.ok) { setError(result.error || "Không thể tải ảnh."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể tải ảnh.")); return; }
     setNotice(`Đã tải ${result.images?.length || 0} ảnh lên Storage.`); await loadProducts(selected.id);
   }
 
@@ -171,7 +179,7 @@ export default function AdminProductsPage() {
     if (!selected) return;
     const response = await fetch("/api/admin/images", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: image.id, productId: selected.id, ...values }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(result.error || "Không thể cập nhật ảnh."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể cập nhật ảnh.")); return; }
     await loadProducts(selected.id);
   }
 
@@ -188,7 +196,7 @@ export default function AdminProductsPage() {
     if (!selected || !window.confirm("Xoá ảnh này khỏi sản phẩm và Storage?")) return;
     const response = await fetch("/api/admin/images", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: image.id, productId: selected.id }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(result.error || "Không thể xoá ảnh."); return; }
+    if (!response.ok) { setError(apiErrorMessage(result, "Không thể xoá ảnh.")); return; }
     setNotice("Đã xoá ảnh."); await loadProducts(selected.id);
   }
 
