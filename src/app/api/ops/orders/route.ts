@@ -37,7 +37,7 @@ const transitions: Record<string, string[]> = {
   cancelled: [],
 };
 
-const orderSelect = "id, order_code, customer_name, customer_phone, recipient_name, recipient_phone, is_pickup, delivery_method, delivery_address, delivery_date, delivery_time, card_message, note, internal_note, subtotal_vnd, shipping_vnd, shipping_fee_confirmed, total_vnd, deposit_required_vnd, deposit_paid_vnd, remaining_amount_vnd, payment_status, delivery_status, carrier_name, shipper_name, estimated_delivery_at, status, created_at, updated_at, order_items(product_name_snapshot, quantity, unit_price_vnd, line_total_vnd)";
+const orderSelect = "id, order_code, user_id, customer_id, created_by, source, customer_name, customer_phone, recipient_name, recipient_phone, is_pickup, delivery_method, delivery_address, delivery_date, delivery_time, card_message, note, internal_note, subtotal_vnd, shipping_vnd, shipping_fee_confirmed, total_vnd, deposit_required_vnd, deposit_paid_vnd, remaining_amount_vnd, payment_status, delivery_status, carrier_name, shipper_name, estimated_delivery_at, status, created_at, updated_at, order_items(product_id, is_custom, custom_note, product_name_snapshot, product_sku_snapshot, quantity, unit_price_vnd, line_total_vnd)";
 
 const statusAliases: Record<string, string> = {
   pending: "pending_confirmation",

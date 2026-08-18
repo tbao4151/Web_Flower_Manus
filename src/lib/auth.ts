@@ -1,4 +1,6 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "./supabase-server";
 
@@ -19,6 +21,90 @@ export function normalizeVietnamPhone(input: string) {
 export const normalizedPhoneSchema = z.string().trim().transform(toVietnamLocalPhone).pipe(vietnamPhoneSchema);
 
 export type AppRole = "customer" | "staff" | "admin";
+
+export const MANAGEMENT_SESSION_COOKIE = "cas_management_session";
+export const MANAGEMENT_INACTIVITY_MS = 30 * 60 * 1000;
+export const MANAGEMENT_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+
+interface ManagementSessionPayload {
+  userId: string;
+  role: "staff" | "admin";
+  issuedAt: number;
+  lastActiveAt: number;
+  expiresAt: number;
+}
+
+function getManagementSecret() {
+  const secret = process.env.AUTH_INTERNAL_EMAIL_SECRET;
+  if (!secret || secret.length < 32) throw new Error("AUTH_INTERNAL_EMAIL_SECRET is missing or too short.");
+  return secret;
+}
+
+function encodePayload(payload: ManagementSessionPayload) {
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function signPayload(encodedPayload: string) {
+  return createHmac("sha256", getManagementSecret()).update(encodedPayload, "utf8").digest("base64url");
+}
+
+function parsePayload(encodedPayload: string) {
+  try {
+    const value = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<ManagementSessionPayload>;
+    if (typeof value.userId !== "string" || !["staff", "admin"].includes(value.role || "") || !["issuedAt", "lastActiveAt", "expiresAt"].every((key) => typeof value[key as keyof ManagementSessionPayload] === "number")) return null;
+    return value as ManagementSessionPayload;
+  } catch {
+    return null;
+  }
+}
+
+export function createManagementSessionToken(userId: string, role: "staff" | "admin", now = Date.now()) {
+  const payload: ManagementSessionPayload = { userId, role, issuedAt: now, lastActiveAt: now, expiresAt: now + MANAGEMENT_MAX_AGE_MS };
+  const encodedPayload = encodePayload(payload);
+  return `${encodedPayload}.${signPayload(encodedPayload)}`;
+}
+
+export function verifyManagementSessionToken(token: string | null | undefined, expectedUserId?: string, expectedRole?: "staff" | "admin", now = Date.now()) {
+  if (!token) return null;
+  const [encodedPayload, signature, ...extra] = token.split(".");
+  if (!encodedPayload || !signature || extra.length || !/^[A-Za-z0-9_-]+$/.test(encodedPayload) || !/^[A-Za-z0-9_-]+$/.test(signature)) return null;
+  try {
+    const expectedSignature = signPayload(encodedPayload);
+    const validSignature = timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+    if (!validSignature) return null;
+  } catch {
+    return null;
+  }
+  const payload = parsePayload(encodedPayload);
+  if (!payload || payload.expiresAt <= now || now - payload.lastActiveAt > MANAGEMENT_INACTIVITY_MS) return null;
+  if (expectedUserId && payload.userId !== expectedUserId) return null;
+  if (expectedRole && payload.role !== expectedRole) return null;
+  return payload;
+}
+
+export function setManagementSessionCookie(response: NextResponse, userId: string, role: "staff" | "admin", now = Date.now()) {
+  response.cookies.set({ name: MANAGEMENT_SESSION_COOKIE, value: createManagementSessionToken(userId, role, now), httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: Math.floor(MANAGEMENT_MAX_AGE_MS / 1000) });
+}
+
+export function clearManagementSessionCookie(response: NextResponse) {
+  response.cookies.set({ name: MANAGEMENT_SESSION_COOKIE, value: "", httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0 });
+}
+
+export async function getManagementSession() {
+  const store = await cookies();
+  return verifyManagementSessionToken(store.get(MANAGEMENT_SESSION_COOKIE)?.value);
+}
+
+export async function getManagementSessionForUser(userId: string, role: "staff" | "admin") {
+  const session = await getManagementSession();
+  return session && session.userId === userId && session.role === role ? session : null;
+}
+
+export function touchManagementSessionCookie(response: NextResponse, session: ManagementSessionPayload, now = Date.now()) {
+  const nextPayload: ManagementSessionPayload = { ...session, lastActiveAt: now };
+  const encodedPayload = encodePayload(nextPayload);
+  response.cookies.set({ name: MANAGEMENT_SESSION_COOKIE, value: `${encodedPayload}.${signPayload(encodedPayload)}`, httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: Math.floor(Math.max(0, session.expiresAt - now) / 1000) });
+}
 
 export function getRoleLandingPath(role: string) {
   if (role === "admin") return "/admin";
@@ -84,11 +170,22 @@ export async function getCurrentProfile() {
 export async function requireStaff() {
   const current = await getCurrentProfile();
   if (!current || !current.profile.is_active || !["staff", "admin"].includes(current.profile.role)) return null;
+  const management = await getManagementSessionForUser(current.user.id, current.profile.role as "staff" | "admin");
+  if (!management) return null;
   return current;
 }
 
 export async function requireAdmin() {
   const current = await getCurrentProfile();
   if (!current || !current.profile.is_active || current.profile.role !== "admin") return null;
+  const management = await getManagementSessionForUser(current.user.id, "admin");
+  if (!management) return null;
   return current;
+}
+
+export async function getPrivilegedAuthState() {
+  const current = await getCurrentProfile();
+  if (!current) return { current: null, managementActive: false };
+  if (!["staff", "admin"].includes(current.profile.role)) return { current, managementActive: false };
+  return { current, managementActive: Boolean(await getManagementSessionForUser(current.user.id, current.profile.role as "staff" | "admin")) };
 }

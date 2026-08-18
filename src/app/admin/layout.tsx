@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import AdminNav from "./_components/AdminNav";
-import { getCurrentProfile } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 
 export default async function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const current = await getCurrentProfile();
-  if (!current) redirect("/dang-nhap?next=%2Fadmin");
-  if (!current.profile.is_active || current.profile.role !== "admin") redirect("/");
+  const current = await requireAdmin();
+  if (!current) redirect("/dang-nhap?next=%2Fadmin&reauth=1");
 
   return (
     <main className="min-h-screen bg-background px-5 py-6 sm:px-8">
@@ -27,10 +26,7 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
 
 function LinkToStore() {
   return (
-    <Link
-      href="/"
-      className="rounded-full border border-border px-4 py-2 text-sm font-semibold text-primary transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-    >
+    <Link href="/" className="rounded-full border border-border px-4 py-2 text-sm font-semibold text-primary transition hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
       Về cửa hàng
     </Link>
   );

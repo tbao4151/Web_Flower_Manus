@@ -2,11 +2,43 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 const protectedPaths = ["/tai-khoan", "/staff", "/admin"];
+const privilegedPaths = ["/staff", "/admin"];
+const MANAGEMENT_SESSION_COOKIE = "cas_management_session";
+const MANAGEMENT_INACTIVITY_MS = 30 * 60 * 1000;
+
+function isPath(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function base64UrlToBytes(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(normalized);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function verifyManagementToken(token: string | undefined, expectedUserId: string, expectedRole: "staff" | "admin") {
+  if (!token) return false;
+  const [encodedPayload, encodedSignature, ...extra] = token.split(".");
+  if (!encodedPayload || !encodedSignature || extra.length) return false;
+  try {
+    const secret = process.env.AUTH_INTERNAL_EMAIL_SECRET;
+    if (!secret || secret.length < 32) return false;
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const valid = await crypto.subtle.verify("HMAC", key, base64UrlToBytes(encodedSignature), new TextEncoder().encode(encodedPayload));
+    if (!valid) return false;
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlToBytes(encodedPayload))) as { userId?: string; role?: string; lastActiveAt?: number; expiresAt?: number };
+    const now = Date.now();
+    return payload.userId === expectedUserId && payload.role === expectedRole && typeof payload.lastActiveAt === "number" && typeof payload.expiresAt === "number" && payload.expiresAt > now && now - payload.lastActiveAt <= MANAGEMENT_INACTIVITY_MS;
+  } catch {
+    return false;
+  }
+}
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const pathname = request.nextUrl.pathname;
 
   if (!url || !key) return response;
 
@@ -22,14 +54,27 @@ export async function middleware(request: NextRequest) {
   });
 
   const { data: { user } } = await supabase.auth.getUser();
-  const pathname = request.nextUrl.pathname;
-  const needsAuth = protectedPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+  const needsAuth = protectedPaths.some((path) => isPath(pathname, path));
 
   if (needsAuth && !user) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/dang-nhap";
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  if (user && privilegedPaths.some((path) => isPath(pathname, path))) {
+    const { data: profile } = await supabase.from("profiles").select("role, is_active").eq("id", user.id).maybeSingle();
+    const role = profile?.role;
+    const validRole = role === "staff" || role === "admin";
+    const managementActive = validRole && profile?.is_active === true && await verifyManagementToken(request.cookies.get(MANAGEMENT_SESSION_COOKIE)?.value, user.id, role);
+    if (!managementActive) {
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/dang-nhap";
+      loginUrl.searchParams.set("next", pathname);
+      loginUrl.searchParams.set("reauth", "1");
+      return NextResponse.redirect(loginUrl);
+    }
   }
 
   return response;
