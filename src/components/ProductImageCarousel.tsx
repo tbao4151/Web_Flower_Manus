@@ -159,7 +159,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
                 src={image}
                 alt=""
                 aria-hidden="true"
-                className="aspect-square h-full w-full object-cover"
+                className="aspect-[2/3] h-full w-full object-cover"
                 loading={index === 0 ? "eager" : "lazy"}
                 decoding="async"
                 draggable={false}
