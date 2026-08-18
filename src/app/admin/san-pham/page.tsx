@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown, ChevronUp, ImagePlus, Pencil, Plus, RotateCcw, Save, Search, Trash2, Upload, X } from "lucide-react";
+import { useToast } from "@/components/ToastProvider";
 
 type Status = "draft" | "published" | "hidden" | "archived";
 type ProductType = "bouquet" | "basket";
@@ -18,6 +19,17 @@ const blank: FormState = { sku: "", slug: "", name: "", productType: "bouquet", 
 const money = (value: number) => new Intl.NumberFormat("vi-VN").format(value);
 const statusLabel: Record<Status, string> = { draft: "Bản nháp", published: "Đang hiển thị", hidden: "Đã ẩn", archived: "Đã lưu trữ" };
 const featuredSlotLabels = [{ position: 1 as const, label: "Vị trí 1 – Ảnh lớn", detail: "Ảnh lớn bên trái" }, { position: 2 as const, label: "Vị trí 2 – Ảnh trên bên phải", detail: "Ảnh nhỏ phía trên" }, { position: 3 as const, label: "Vị trí 3 – Ảnh dưới bên phải", detail: "Ảnh nhỏ phía dưới" }];
+
+function draftSlug(name: string) {
+  const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "san-pham";
+  return `${base}-${Date.now().toString(36).slice(-6)}`;
+}
+
+function draftSku(name: string, productType: ProductType) {
+  const prefix = productType === "bouquet" ? "BO" : "GIO";
+  const namePart = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").toUpperCase().replace(/[^A-Z0-9]+/g, "").slice(0, 18) || "HOA";
+  return `CA-${prefix}-${namePart}-${Date.now().toString(36).slice(-6).toUpperCase()}`.slice(0, 50);
+}
 
 function apiErrorMessage(result: unknown, fallback: string) {
   if (!result || typeof result !== "object") return fallback;
@@ -47,6 +59,8 @@ export default function AdminProductsPage() {
   const [featuredCandidates, setFeaturedCandidates] = useState<Product[]>([]);
   const [featuredSlots, setFeaturedSlots] = useState<FeaturedSlots>({ 1: null, 2: null, 3: null });
   const [featuredSaving, setFeaturedSaving] = useState(false);
+  const [autoIdentifiers, setAutoIdentifiers] = useState(false);
+  const toast = useToast();
 
   async function loadProducts(nextSelectedId?: string) {
     const params = new URLSearchParams({ pageSize: "100" });
@@ -78,8 +92,9 @@ export default function AdminProductsPage() {
     const response = await fetch("/api/admin/featured", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ positionOne: featuredSlots[1], positionTwo: featuredSlots[2], positionThree: featuredSlots[3] }) });
     const result = await response.json().catch(() => ({}));
     setFeaturedSaving(false);
-    if (!response.ok) { setError(apiErrorMessage(result, "Không thể lưu mẫu nổi bật.")); return; }
+    if (!response.ok) { const message = apiErrorMessage(result, "Không thể lưu mẫu nổi bật."); setError(message); toast.error(message); return; }
     setNotice("Đã lưu 3 mẫu nổi bật trang chủ.");
+    toast.success("Đã lưu 3 mẫu nổi bật trang chủ.");
     await loadFeaturedSlots();
   }
 
@@ -112,14 +127,16 @@ export default function AdminProductsPage() {
 
   const visibleProducts = useMemo(() => products.filter((product) => (type === "all" || product.product_type === type) && (!featuredOnly || product.featured)), [featuredOnly, products, type]);
 
-  const openNew = () => { setSelected(null); setForm(blank); setRecipe([]); setAvailableQuantity(null); setShowEditor(true); setError(""); setNotice(""); };
+  const openNew = () => { const productType: ProductType = "bouquet"; setSelected(null); setForm({ ...blank, sku: draftSku("", productType), slug: draftSlug("") }); setAutoIdentifiers(true); setRecipe([]); setAvailableQuantity(null); setShowEditor(true); setError(""); setNotice(""); };
   const openEdit = (product: Product) => {
     setSelected(product);
     setForm({ sku: product.sku, slug: product.slug, name: product.name, productType: product.product_type, priceVnd: String(product.price_vnd), salePriceVnd: product.sale_price_vnd == null ? "" : String(product.sale_price_vnd), description: product.description || "", composition: product.composition || "", featured: product.featured, status: product.status, saleMode: product.sale_mode || "ready_stock", preorderMinHours: product.preorder_min_hours == null ? "" : String(product.preorder_min_hours), showWhenOutOfStock: product.show_when_out_of_stock === true, categoryIds: product.product_categories.map((item) => String(item.category_id)), toneIds: product.product_tones.map((item) => String(item.tone_id)), occasionIds: product.product_occasions.map((item) => String(item.occasion_id)) });
-    setShowEditor(true); setError(""); setNotice("");
+    setShowEditor(true); setAutoIdentifiers(false); setError(""); setNotice("");
   };
   const closeEditor = () => { setShowEditor(false); setSelected(null); setError(""); setNotice(""); };
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((current) => ({ ...current, [key]: value }));
+  const updateName = (name: string) => setForm((current) => autoIdentifiers ? ({ ...current, name, sku: draftSku(name, current.productType), slug: draftSlug(name) }) : ({ ...current, name }));
+  const updateProductType = (productType: ProductType) => setForm((current) => autoIdentifiers ? ({ ...current, productType, sku: draftSku(current.name, productType) }) : ({ ...current, productType }));
   const toggleRelation = (key: "categoryIds" | "toneIds" | "occasionIds", id: string) => update(key, form[key].includes(id) ? form[key].filter((value) => value !== id) : [...form[key], id]);
 
   async function saveProduct(event: FormEvent) {
@@ -128,10 +145,10 @@ export default function AdminProductsPage() {
     const response = await fetch(selected ? "/api/ops/products" : "/api/ops/products", { method: selected ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(selected ? { id: selected.id, ...payload } : payload) });
     const result = await response.json().catch(() => ({}));
     setSaving(false);
-    if (!response.ok) { setError(apiErrorMessage(result, "Không thể lưu sản phẩm.")); return; }
-    const id = result.product.id as string;
-    setNotice("Đã lưu thông tin sản phẩm.");
-    await loadProducts(id); setSelected((current) => current || result.product); setShowEditor(true); await loadInventoryEditor(id);
+    if (!response.ok) { const message = apiErrorMessage(result, "Không thể lưu sản phẩm."); setError(message); toast.error(message); return; }
+    closeEditor();
+    await loadProducts();
+    toast.success(selected ? "Đã cập nhật sản phẩm." : "Đã tạo sản phẩm.");
   }
 
   const addRecipeRow = () => setRecipe((current) => [...current, { inventoryItemId: "", quantityRequired: "1" }]);
@@ -141,11 +158,12 @@ export default function AdminProductsPage() {
     if (!selected) return;
     setError(""); setNotice("");
     const ingredients = recipe.filter((row) => row.inventoryItemId).map((row) => ({ inventoryItemId: row.inventoryItemId, quantityRequired: Number(row.quantityRequired) }));
-    if (ingredients.some((row) => !Number.isInteger(row.quantityRequired) || row.quantityRequired < 1)) { setError("Mỗi nguyên liệu phải có định lượng là số nguyên dương."); return; }
+    if (ingredients.some((row) => !Number.isInteger(row.quantityRequired) || row.quantityRequired < 1)) { const message = "Mỗi nguyên liệu phải có định lượng là số nguyên dương."; setError(message); toast.error(message); return; }
     const response = await fetch(`/api/admin/products/${selected.id}/recipe`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ingredients }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(apiErrorMessage(result, "Không thể lưu công thức.")); return; }
+    if (!response.ok) { const message = apiErrorMessage(result, "Không thể lưu công thức."); setError(message); toast.error(message); return; }
     setNotice("Đã lưu công thức sản phẩm.");
+    toast.success("Đã lưu công thức sản phẩm.");
     await loadInventoryEditor(selected.id);
   }
 
@@ -157,10 +175,10 @@ export default function AdminProductsPage() {
       ? await fetch(`/api/ops/products?id=${product.id}`, { method: "DELETE" })
       : await fetch("/api/ops/products", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: product.id, status: action === "hide" ? "hidden" : action === "show" ? "published" : action === "archive" ? "archived" : "draft" }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(apiErrorMessage(result, "Không thể thay đổi trạng thái sản phẩm.")); return; }
-    setNotice(action === "permanent" ? "Đã xoá sản phẩm." : "Đã cập nhật trạng thái sản phẩm.");
-    if (action === "permanent") closeEditor();
+    if (!response.ok) { const message = apiErrorMessage(result, "Không thể thay đổi trạng thái sản phẩm."); setError(message); toast.error(message); return; }
+    if (selected?.id === product.id) closeEditor();
     await loadProducts();
+    toast.success(action === "permanent" ? "Đã xoá sản phẩm." : "Đã cập nhật trạng thái sản phẩm.");
   }
 
   async function uploadImages(event: ChangeEvent<HTMLInputElement>) {
@@ -171,16 +189,17 @@ export default function AdminProductsPage() {
     const response = await fetch("/api/admin/images", { method: "POST", body: data });
     const result = await response.json().catch(() => ({}));
     setUploading(false); event.target.value = "";
-    if (!response.ok) { setError(apiErrorMessage(result, "Không thể tải ảnh.")); return; }
-    setNotice(`Đã tải ${result.images?.length || 0} ảnh lên Storage.`); await loadProducts(selected.id);
+    if (!response.ok) { const message = apiErrorMessage(result, "Không thể tải ảnh."); setError(message); toast.error(message); return; }
+    setNotice(`Đã tải ${result.images?.length || 0} ảnh lên Storage.`); toast.success(`Đã tải ${result.images?.length || 0} ảnh lên Storage.`); await loadProducts(selected.id);
   }
 
   async function patchImage(image: ImageItem, values: Record<string, unknown>) {
     if (!selected) return;
     const response = await fetch("/api/admin/images", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: image.id, productId: selected.id, ...values }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(apiErrorMessage(result, "Không thể cập nhật ảnh.")); return; }
+    if (!response.ok) { const message = apiErrorMessage(result, "Không thể cập nhật ảnh."); setError(message); toast.error(message); return; }
     await loadProducts(selected.id);
+    toast.success("Đã cập nhật ảnh.");
   }
 
   async function moveImage(index: number, direction: -1 | 1) {
@@ -190,14 +209,15 @@ export default function AdminProductsPage() {
     await patchImage(images[index], { displayOrder: other.display_order });
     await patchImage(other, { displayOrder: images[index].display_order });
     setNotice("Đã lưu thứ tự ảnh.");
+    toast.success("Đã lưu thứ tự ảnh.");
   }
 
   async function removeImage(image: ImageItem) {
     if (!selected || !window.confirm("Xoá ảnh này khỏi sản phẩm và Storage?")) return;
     const response = await fetch("/api/admin/images", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: image.id, productId: selected.id }) });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(apiErrorMessage(result, "Không thể xoá ảnh.")); return; }
-    setNotice("Đã xoá ảnh."); await loadProducts(selected.id);
+    if (!response.ok) { const message = apiErrorMessage(result, "Không thể xoá ảnh."); setError(message); toast.error(message); return; }
+    setNotice("Đã xoá ảnh."); toast.success("Đã xoá ảnh."); await loadProducts(selected.id);
   }
 
   const imageCount = selected?.product_images.length || 0;
@@ -209,7 +229,7 @@ export default function AdminProductsPage() {
       <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{visibleProducts.map((product) => <article key={product.id} className="overflow-hidden rounded-2xl border border-border bg-background"><div className="relative aspect-[4/3] bg-surface-muted">{product.product_images?.[0]?.public_url ? <img src={product.product_images[0].public_url} alt={product.product_images[0].alt_text || product.name} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-muted-foreground"><ImagePlus size={28} /></div>}<span className="absolute left-3 top-3 rounded-full bg-background/90 px-3 py-1 text-[11px] font-bold">{statusLabel[product.status]}</span></div><div className="p-4"><div className="flex items-start justify-between gap-3"><div><h2 className="font-display text-2xl leading-tight">{product.name}</h2><p className="mt-1 text-xs text-muted-foreground">{product.sku} · {product.product_type === "bouquet" ? "Bó hoa" : "Giỏ hoa"}</p></div><p className="shrink-0 text-sm font-bold text-primary">{money(product.sale_price_vnd ?? product.price_vnd)}đ</p></div><p className="mt-3 line-clamp-2 text-sm leading-6 text-muted-foreground">{product.description || "Chưa có mô tả."}</p><div className="mt-4 flex flex-wrap gap-2"><button onClick={() => openEdit(product)} className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-bold text-white"><Pencil size={14} /> Chỉnh sửa</button>{product.status === "published" ? <button onClick={() => void lifecycle(product, "hide")} className="min-h-10 rounded-full border border-border px-4 py-2 text-xs font-bold">Ẩn</button> : product.status === "hidden" ? <><button onClick={() => void lifecycle(product, "show")} className="min-h-10 rounded-full border border-primary px-4 py-2 text-xs font-bold text-primary">Hiển thị</button><button onClick={() => void lifecycle(product, "archive")} className="min-h-10 rounded-full border border-border px-4 py-2 text-xs font-bold">Lưu trữ</button></> : product.status === "archived" ? <button onClick={() => void lifecycle(product, "restore")} className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border px-4 py-2 text-xs font-bold"><RotateCcw size={14} /> Khôi phục</button> : <><button onClick={() => void lifecycle(product, "show")} className="min-h-10 rounded-full border border-primary px-4 py-2 text-xs font-bold text-primary">Hiển thị</button><button onClick={() => void lifecycle(product, "archive")} className="min-h-10 rounded-full border border-border px-4 py-2 text-xs font-bold">Lưu trữ</button></>}</div></div></article>)}</div>{!visibleProducts.length && <div className="mt-8 rounded-2xl bg-background p-10 text-center text-sm text-muted-foreground">Chưa có sản phẩm phù hợp.</div>}
     </section></div>
     {showEditor && <div className="fixed inset-0 z-50 overflow-y-auto bg-foreground/30 p-3 sm:p-6"><section role="dialog" aria-modal="true" aria-labelledby="product-editor-title" className="mx-auto max-w-5xl rounded-[28px] border border-border bg-surface p-5 shadow-xl sm:p-8"><div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-primary">{selected ? "Chỉnh sửa catalog" : "Sản phẩm mới"}</p><h2 id="product-editor-title" className="mt-2 font-display text-3xl sm:text-4xl">{selected?.name || "Thêm sản phẩm"}</h2></div><button onClick={closeEditor} className="flex h-10 w-10 items-center justify-center rounded-full border border-border" aria-label="Đóng trình chỉnh sửa"><X size={18} /></button></div>
-      <form onSubmit={saveProduct} className="mt-6 grid gap-4 md:grid-cols-2"><label className="text-sm font-semibold">Tên sản phẩm<input required value={form.name} onChange={(event) => update("name", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold">SKU<input required value={form.sku} onChange={(event) => update("sku", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold">Slug<input required pattern="[a-z0-9-]+" value={form.slug} onChange={(event) => update("slug", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold">Loại<select value={form.productType} onChange={(event) => update("productType", event.target.value as ProductType)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="bouquet">Bó hoa</option><option value="basket">Giỏ hoa</option></select></label><label className="text-sm font-semibold">Giá gốc (VND)<input required type="number" min="0" value={form.priceVnd} onChange={(event) => update("priceVnd", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold">Giá sale (tuỳ chọn)<input type="number" min="0" value={form.salePriceVnd} onChange={(event) => update("salePriceVnd", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold md:col-span-2">Mô tả chính thức<textarea value={form.description} onChange={(event) => update("description", event.target.value)} className="mt-2 min-h-24 w-full rounded-xl border border-border bg-background p-3 font-normal" /></label><label className="text-sm font-semibold md:col-span-2">Thành phần hoa (tuỳ chọn)<textarea value={form.composition} onChange={(event) => update("composition", event.target.value)} className="mt-2 min-h-20 w-full rounded-xl border border-border bg-background p-3 font-normal" /></label><label className="flex min-h-11 items-center gap-3 text-sm font-semibold"><input type="checkbox" checked={form.featured} onChange={(event) => update("featured", event.target.checked)} className="h-4 w-4 accent-primary" /> Đánh dấu nổi bật</label><label className="text-sm font-semibold">Cách bán<select value={form.saleMode} onChange={(event) => update("saleMode", event.target.value as FormState["saleMode"])} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="ready_stock">Có sẵn</option><option value="preorder">Đặt trước</option></select></label>{form.saleMode === "preorder" && <label className="text-sm font-semibold">Đặt trước tối thiểu (giờ)<input required type="number" min="1" value={form.preorderMinHours} onChange={(event) => update("preorderMinHours", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>}<label className="flex min-h-11 items-center gap-3 text-sm font-semibold"><input type="checkbox" checked={form.showWhenOutOfStock} onChange={(event) => update("showWhenOutOfStock", event.target.checked)} className="h-4 w-4 accent-primary" /> Vẫn hiển thị khi hết hàng</label><label className="text-sm font-semibold">Trạng thái<select value={form.status} onChange={(event) => update("status", event.target.value as Status)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="draft">Bản nháp</option><option value="published" disabled={!selected?.product_images?.length}>Đang hiển thị</option><option value="hidden">Đã ẩn</option><option value="archived">Đã lưu trữ</option></select></label>
+      <form onSubmit={saveProduct} className="mt-6 grid gap-4 md:grid-cols-2"><label className="text-sm font-semibold">Tên sản phẩm<input required value={form.name} onChange={(event) => updateName(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold">SKU<input required value={form.sku} onChange={(event) => { setAutoIdentifiers(false); update("sku", event.target.value); }} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /><span className="mt-1 block text-xs font-normal text-muted-foreground">Tự sinh khi tạo mới; có thể chỉnh thủ công.</span></label><label className="text-sm font-semibold">Slug<input required pattern="[a-z0-9-]+" value={form.slug} onChange={(event) => { setAutoIdentifiers(false); update("slug", event.target.value); }} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /><span className="mt-1 block text-xs font-normal text-muted-foreground">Tự sinh từ tên sản phẩm và có hậu tố duy nhất.</span></label><label className="text-sm font-semibold">Loại<select value={form.productType} onChange={(event) => updateProductType(event.target.value as ProductType)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="bouquet">Bó hoa</option><option value="basket">Giỏ hoa</option></select></label><label className="text-sm font-semibold">Giá gốc (VND)<input required type="number" min="0" value={form.priceVnd} onChange={(event) => update("priceVnd", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold">Giá sale (tuỳ chọn)<input type="number" min="0" value={form.salePriceVnd} onChange={(event) => update("salePriceVnd", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label><label className="text-sm font-semibold md:col-span-2">Mô tả chính thức<textarea value={form.description} onChange={(event) => update("description", event.target.value)} className="mt-2 min-h-24 w-full rounded-xl border border-border bg-background p-3 font-normal" /></label><label className="text-sm font-semibold md:col-span-2">Thành phần hoa (tuỳ chọn)<textarea value={form.composition} onChange={(event) => update("composition", event.target.value)} className="mt-2 min-h-20 w-full rounded-xl border border-border bg-background p-3 font-normal" /></label><label className="flex min-h-11 items-center gap-3 text-sm font-semibold"><input type="checkbox" checked={form.featured} onChange={(event) => update("featured", event.target.checked)} className="h-4 w-4 accent-primary" /> Đánh dấu nổi bật</label><label className="text-sm font-semibold">Cách bán<select value={form.saleMode} onChange={(event) => update("saleMode", event.target.value as FormState["saleMode"])} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="ready_stock">Có sẵn</option><option value="preorder">Đặt trước</option></select></label>{form.saleMode === "preorder" && <label className="text-sm font-semibold">Đặt trước tối thiểu (giờ)<input required type="number" min="1" value={form.preorderMinHours} onChange={(event) => update("preorderMinHours", event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal" /></label>}<label className="flex min-h-11 items-center gap-3 text-sm font-semibold"><input type="checkbox" checked={form.showWhenOutOfStock} onChange={(event) => update("showWhenOutOfStock", event.target.checked)} className="h-4 w-4 accent-primary" /> Vẫn hiển thị khi hết hàng</label><label className="text-sm font-semibold">Trạng thái<select value={form.status} onChange={(event) => update("status", event.target.value as Status)} className="mt-2 h-11 w-full rounded-xl border border-border bg-background px-3 font-normal"><option value="draft">Bản nháp</option><option value="published" disabled={!selected?.product_images?.length}>Đang hiển thị</option><option value="hidden">Đã ẩn</option><option value="archived">Đã lưu trữ</option></select></label>
         {([ ["categoryIds", "Danh mục", taxonomies.categories], ["toneIds", "Tone màu", taxonomies.tones], ["occasionIds", "Dịp tặng", taxonomies.occasions] ] as const).map(([key, label, items]) => <fieldset key={key} className="rounded-xl border border-border p-3"><legend className="px-1 text-xs font-bold uppercase tracking-[.12em] text-primary">{label}</legend><div className="mt-1 flex max-h-28 flex-wrap gap-2 overflow-y-auto">{items.filter((item) => item.is_active).map((item) => <label key={item.id} className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold ${form[key].includes(item.id) ? "border-primary bg-[#e4ecdf] text-primary" : "border-border"}`}><input type="checkbox" className="sr-only" checked={form[key].includes(item.id)} onChange={() => toggleRelation(key, item.id)} />{item.name}</label>)}{!items.length && <span className="text-xs text-muted-foreground">Chưa có dữ liệu.</span>}</div></fieldset>)}
         <div className="flex flex-wrap gap-3 md:col-span-2"><button disabled={saving} className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white"><Save size={16} />{saving ? "Đang lưu..." : "Lưu sản phẩm"}</button><button type="button" onClick={closeEditor} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-border px-5 py-3 text-sm font-bold">Huỷ</button></div>
       </form>

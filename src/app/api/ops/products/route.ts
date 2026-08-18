@@ -4,9 +4,11 @@ import { requireAdmin, requireStaff } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase-server";
 
 const ids = z.array(z.string().uuid()).max(50).optional();
+const optionalSku = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().trim().min(2).max(50).optional());
+const optionalSlug = z.preprocess((value) => typeof value === "string" && value.trim() === "" ? undefined : value, z.string().trim().min(2).max(120).regex(/^[a-z0-9-]+$/).optional());
 const productSchemaBase = z.object({
-  sku: z.string().trim().min(2).max(50),
-  slug: z.string().trim().min(2).max(120).regex(/^[a-z0-9-]+$/),
+  sku: optionalSku,
+  slug: optionalSlug,
   name: z.string().trim().min(2).max(120),
   productType: z.enum(["bouquet", "basket"]),
   priceVnd: z.number().int().positive(),
@@ -53,6 +55,21 @@ function supabaseErrorFields(error: unknown): SupabaseErrorLike {
 
 function logSupabaseError(context: string, error: unknown) {
   console.error(context, supabaseErrorFields(error));
+}
+
+function slugify(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "d").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 96) || "san-pham";
+}
+
+function generatedSlug(name: string, attempt: number) {
+  const suffix = `${Date.now().toString(36).slice(-6)}${attempt ? `-${attempt}` : ""}`;
+  return `${slugify(name).slice(0, 110 - suffix.length)}-${suffix}`;
+}
+
+function generatedSku(name: string, productType: "bouquet" | "basket", attempt: number) {
+  const prefix = productType === "bouquet" ? "BO" : "GIO";
+  const suffix = `${Date.now().toString(36).slice(-6).toUpperCase()}${attempt ? `-${attempt}` : ""}`;
+  return `CA-${prefix}-${slugify(name).replace(/-/g, "").slice(0, 32).toUpperCase()}-${suffix}`.slice(0, 50);
 }
 
 function apiError(status: number, code: string, message: string, details?: Record<string, unknown>) {
@@ -142,28 +159,42 @@ export async function POST(request: Request) {
   if (taxonomyError) return apiError(taxonomyError.status, taxonomyError.code, taxonomyError.message, "details" in taxonomyError ? taxonomyError.details : undefined);
   const normalizedProduct = {
     ...product,
-    sku: product.sku.normalize("NFC"),
+    sku: product.sku?.normalize("NFC"),
     name: product.name.normalize("NFC"),
     description: product.description.normalize("NFC"),
     composition: product.composition == null ? product.composition : product.composition.normalize("NFC"),
   };
   try {
     const supabase = createSupabaseAdminClient();
-    const { data, error } = await supabase.from("products").insert({ sku: normalizedProduct.sku, slug: normalizedProduct.slug, name: normalizedProduct.name, product_type: normalizedProduct.productType, price_vnd: normalizedProduct.priceVnd, sale_price_vnd: normalizedProduct.salePriceVnd ?? null, description: normalizedProduct.description, composition: normalizedProduct.composition ?? null, featured: normalizedProduct.featured, status: normalizedProduct.status, sale_mode: normalizedProduct.saleMode, preorder_min_hours: normalizedProduct.preorderMinHours ?? null, show_when_out_of_stock: normalizedProduct.showWhenOutOfStock }).select(adminProductSelect).single();
-    if (error || !data) {
-      logSupabaseError("[admin/products POST] product insert failed", error);
-      if (error?.code === "23505") return apiError(409, "PRODUCT_DUPLICATE_SKU_OR_SLUG", "SKU hoặc slug đã tồn tại. Vui lòng dùng giá trị khác.");
+    const suppliedSku = normalizedProduct.sku;
+    const suppliedSlug = normalizedProduct.slug;
+    let data: Record<string, unknown> | null = null;
+    let insertError: SupabaseErrorLike | null = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const candidateSku = suppliedSku || generatedSku(normalizedProduct.name, normalizedProduct.productType, attempt);
+      const candidateSlug = suppliedSlug || generatedSlug(normalizedProduct.name, attempt);
+      const inserted = await supabase.from("products").insert({ sku: candidateSku, slug: candidateSlug, name: normalizedProduct.name, product_type: normalizedProduct.productType, price_vnd: normalizedProduct.priceVnd, sale_price_vnd: normalizedProduct.salePriceVnd ?? null, description: normalizedProduct.description, composition: normalizedProduct.composition ?? null, featured: normalizedProduct.featured, status: normalizedProduct.status, sale_mode: normalizedProduct.saleMode, preorder_min_hours: normalizedProduct.preorderMinHours ?? null, show_when_out_of_stock: normalizedProduct.showWhenOutOfStock }).select(adminProductSelect).single();
+      if (!inserted.error && inserted.data) {
+        data = inserted.data as unknown as Record<string, unknown>;
+        break;
+      }
+      insertError = inserted.error;
+      if (inserted.error?.code !== "23505" || suppliedSku || suppliedSlug) break;
+    }
+    if (!data) {
+      logSupabaseError("[admin/products POST] product insert failed", insertError);
+      if (insertError?.code === "23505") return apiError(409, "PRODUCT_DUPLICATE_SKU_OR_SLUG", suppliedSku || suppliedSlug ? "SKU hoặc slug đã tồn tại. Vui lòng dùng giá trị khác." : "Không thể tự sinh SKU hoặc slug duy nhất. Vui lòng thử lại.");
       return apiError(500, "PRODUCT_CREATE_FAILED", "Không thể tạo sản phẩm do lỗi cơ sở dữ liệu.");
     }
     try {
-      await syncRelations(data.id, { categoryIds, toneIds, occasionIds });
+      await syncRelations(String(data.id), { categoryIds, toneIds, occasionIds });
     } catch (error) {
       logSupabaseError("[admin/products POST] taxonomy relation sync failed", error);
-      const { error: cleanupError } = await supabase.from("products").delete().eq("id", data.id);
+      const { error: cleanupError } = await supabase.from("products").delete().eq("id", String(data.id));
       if (cleanupError) logSupabaseError("[admin/products POST] cleanup after relation failure failed", cleanupError);
       return apiError(400, "PRODUCT_RELATIONS_INVALID", "Không thể liên kết taxonomy cho sản phẩm; dữ liệu tạm thời đã được hoàn tác.");
     }
-    return NextResponse.json({ success: true, product: withPublicImageUrls(supabase, data as unknown as Record<string, unknown>) }, { status: 201 });
+    return NextResponse.json({ success: true, product: withPublicImageUrls(supabase, data) }, { status: 201 });
   } catch (error) {
     logSupabaseError("[admin/products POST] unhandled failure", error);
     return apiError(500, "PRODUCT_CREATE_UNAVAILABLE", "Dịch vụ tạo sản phẩm tạm thời không khả dụng.");
