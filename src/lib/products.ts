@@ -2,6 +2,28 @@ import type { AvailabilityStatus, SaleMode } from "@/lib/inventory";
 
 export type ProductType = string;
 
+export type ProductImageCrop = {
+  cropX: number;
+  cropY: number;
+  cropZoom: number;
+  focalX: number;
+  focalY: number;
+};
+
+export type ProductImage = ProductImageCrop & {
+  id?: string;
+  src: string;
+  alt?: string;
+};
+
+export const defaultProductImageCrop: ProductImageCrop = {
+  cropX: 0.5,
+  cropY: 0.5,
+  cropZoom: 1,
+  focalX: 0.5,
+  focalY: 0.5,
+};
+
 export type Product = {
   id: string;
   sku: string;
@@ -13,6 +35,8 @@ export type Product = {
   description?: string;
   composition?: string;
   image: string;
+  imageCrop?: ProductImageCrop;
+  imageItems?: ProductImage[];
   gallery: string[];
   categories: string[];
   tones: string[];

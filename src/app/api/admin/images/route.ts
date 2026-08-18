@@ -7,6 +7,8 @@ const BUCKET = "product-images";
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const allowedMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const imageIdSchema = z.object({ id: z.string().uuid(), productId: z.string().uuid() });
+const cropValue = z.number().finite().min(0).max(1);
+const cropZoom = z.number().finite().min(1).max(3);
 
 const extensionFor = (file: File) => {
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -57,7 +59,7 @@ export async function POST(request: Request) {
         const { error } = await supabase.from("product_images").update({ is_cover: false }).eq("product_id", productId.data);
         if (error) throw error;
       }
-      const { data, error } = await supabase.from("product_images").insert({ product_id: productId.data, storage_path: storagePath, alt_text: altText.data, display_order: nextOrder++, is_cover: isCover, mime_type: file.type }).select("id, product_id, storage_path, alt_text, display_order, is_cover, mime_type").single();
+      const { data, error } = await supabase.from("product_images").insert({ product_id: productId.data, storage_path: storagePath, alt_text: altText.data, display_order: nextOrder++, is_cover: isCover, mime_type: file.type }).select("id, product_id, storage_path, alt_text, display_order, is_cover, mime_type, crop_x, crop_y, crop_zoom, focal_x, focal_y").single();
       if (error || !data) throw error || new Error("Không thể lưu metadata ảnh.");
       insertedImages.push({ ...data, public_url: publicUrl(supabase, storagePath) });
     }
@@ -76,6 +78,11 @@ export async function PATCH(request: Request) {
     altText: z.string().trim().max(200).optional(),
     displayOrder: z.number().int().min(0).max(1000).optional(),
     isCover: z.boolean().optional(),
+    cropX: cropValue.optional(),
+    cropY: cropValue.optional(),
+    cropZoom: cropZoom.optional(),
+    focalX: cropValue.optional(),
+    focalY: cropValue.optional(),
   }).safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Thông tin hình ảnh chưa hợp lệ." }, { status: 400 });
   const supabase = createSupabaseAdminClient();
@@ -95,8 +102,13 @@ export async function PATCH(request: Request) {
   if (values.altText !== undefined) update.alt_text = values.altText;
   if (values.displayOrder !== undefined) update.display_order = values.displayOrder;
   if (values.isCover !== undefined) update.is_cover = values.isCover;
+  if (values.cropX !== undefined) update.crop_x = values.cropX;
+  if (values.cropY !== undefined) update.crop_y = values.cropY;
+  if (values.cropZoom !== undefined) update.crop_zoom = values.cropZoom;
+  if (values.focalX !== undefined) update.focal_x = values.focalX;
+  if (values.focalY !== undefined) update.focal_y = values.focalY;
   if (!Object.keys(update).length) return NextResponse.json({ error: "Không có thay đổi hình ảnh." }, { status: 400 });
-  const { data, error } = await supabase.from("product_images").update(update).eq("id", id).eq("product_id", productId).select("id, product_id, storage_path, alt_text, display_order, is_cover, mime_type").single();
+  const { data, error } = await supabase.from("product_images").update(update).eq("id", id).eq("product_id", productId).select("id, product_id, storage_path, alt_text, display_order, is_cover, mime_type, crop_x, crop_y, crop_zoom, focal_x, focal_y").single();
   if (error || !data) return NextResponse.json({ error: "Không thể cập nhật hình ảnh." }, { status: 400 });
   return NextResponse.json({ image: { ...data, public_url: publicUrl(supabase, data.storage_path) } });
 }

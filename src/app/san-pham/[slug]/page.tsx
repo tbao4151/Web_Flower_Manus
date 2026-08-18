@@ -33,7 +33,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         </div>
       </header>
       <section className="container-cas grid gap-8 py-8 sm:py-12 md:grid-cols-[minmax(0,.92fr)_minmax(380px,1.08fr)] md:items-start">
-        <ProductImageCarousel images={gallery} alt={product.name} />
+        <ProductImageCarousel images={gallery} imageDetails={product.imageItems} alt={product.name} />
         <article className="rounded-[28px] border border-border bg-surface p-6 sm:p-9">
           <p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary">{product.type === "bouquet" ? "Bó hoa" : "Giỏ hoa"} · {product.sku}</p>
           <h1 className="mt-3 max-w-[26ch] font-display text-[clamp(2.35rem,4.6vw,4rem)] leading-[1.14] tracking-normal">{product.name.normalize("NFC")}</h1>

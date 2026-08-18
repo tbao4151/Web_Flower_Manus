@@ -2,16 +2,24 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { ProductImage } from "@/lib/products";
 
 const AUTOPLAY_INTERVAL_MS = 10_000;
 const SWIPE_THRESHOLD_PX = 48;
 
 type ProductImageCarouselProps = {
   images: string[];
+  imageDetails?: ProductImage[];
   alt: string;
 };
 
-export default function ProductImageCarousel({ images, alt }: ProductImageCarouselProps) {
+const cropStyle = (image?: ProductImage) => image ? ({
+  objectPosition: `${image.focalX * 100}% ${image.focalY * 100}%`,
+  transform: `scale(${image.cropZoom})`,
+  transformOrigin: `${image.focalX * 100}% ${image.focalY * 100}%`,
+} as const) : undefined;
+
+export default function ProductImageCarousel({ images, imageDetails, alt }: ProductImageCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [interactionVersion, setInteractionVersion] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
@@ -67,6 +75,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
   if (!imageCount) return null;
 
   const activeImage = images[activeIndex];
+  const activeImageDetails = imageDetails?.[activeIndex];
 
   return (
     <div
@@ -116,6 +125,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
           src={activeImage}
           alt={`${alt} - ảnh ${activeIndex + 1}`}
           className="h-full w-full object-cover object-center transition-opacity duration-300 motion-reduce:transition-none"
+          style={cropStyle(activeImageDetails)}
           fetchPriority={activeIndex === 0 ? "high" : "auto"}
           decoding="async"
           draggable={false}
@@ -160,6 +170,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
                 alt=""
                 aria-hidden="true"
                 className="h-full w-full object-cover"
+                style={cropStyle(imageDetails?.[index])}
                 loading={index === 0 ? "eager" : "lazy"}
                 decoding="async"
                 draggable={false}

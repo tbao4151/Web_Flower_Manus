@@ -43,7 +43,7 @@ const productPatchSchema = productSchemaBase.extend({
   showWhenOutOfStock: z.boolean().optional(),
 }).partial().superRefine(validatePreorder);
 
-const adminProductSelect = "id, sku, slug, name, product_type, price_vnd, sale_price_vnd, description, composition, featured, status, sale_mode, preorder_min_hours, show_when_out_of_stock, archived_at, source_caption, source_reference, created_at, updated_at, product_images(id, storage_path, alt_text, display_order, is_cover, mime_type, created_at), product_categories(category_id), product_tones(tone_id), product_occasions(occasion_id)";
+const adminProductSelect = "id, sku, slug, name, product_type, price_vnd, sale_price_vnd, description, composition, featured, status, sale_mode, preorder_min_hours, show_when_out_of_stock, archived_at, source_caption, source_reference, created_at, updated_at, product_images(id, storage_path, alt_text, display_order, is_cover, mime_type, created_at, crop_x, crop_y, crop_zoom, focal_x, focal_y), product_categories(category_id), product_tones(tone_id), product_occasions(occasion_id)";
 const bucket = "product-images";
 
 type SupabaseErrorLike = { code?: string; message?: string; details?: string; hint?: string };
