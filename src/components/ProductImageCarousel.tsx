@@ -94,7 +94,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
       onMouseLeave={() => setIsHovered(false)}
     >
       <div
-        className="relative touch-pan-y overflow-hidden rounded-[28px] bg-surface-muted"
+        className="relative aspect-[2/3] touch-pan-y overflow-hidden rounded-[28px] bg-surface-muted"
         onTouchStart={(event) => {
           if (imageCount < 2) return;
           const touch = event.changedTouches[0];
@@ -115,7 +115,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
           key={activeImage}
           src={activeImage}
           alt={`${alt} - ảnh ${activeIndex + 1}`}
-          className="aspect-square w-full object-cover transition-opacity duration-300 motion-reduce:transition-none"
+          className="h-full w-full object-cover object-center transition-opacity duration-300 motion-reduce:transition-none"
           fetchPriority={activeIndex === 0 ? "high" : "auto"}
           decoding="async"
           draggable={false}
@@ -150,7 +150,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
             <button
               key={`${image}-${index}`}
               type="button"
-              className={`press min-h-16 min-w-16 overflow-hidden rounded-xl border-2 bg-surface-muted transition sm:min-h-20 sm:min-w-20 ${index === activeIndex ? "border-primary ring-2 ring-primary/20" : "border-transparent opacity-75 hover:opacity-100"}`}
+              className={`press h-20 w-14 shrink-0 overflow-hidden rounded-xl border-2 bg-surface-muted transition sm:h-24 sm:w-16 ${index === activeIndex ? "border-primary ring-2 ring-primary/20" : "border-transparent opacity-75 hover:opacity-100"}`}
               aria-label={`Xem ảnh ${index + 1}`}
               aria-current={index === activeIndex ? "true" : undefined}
               onClick={() => selectImage(index)}
@@ -159,7 +159,7 @@ export default function ProductImageCarousel({ images, alt }: ProductImageCarous
                 src={image}
                 alt=""
                 aria-hidden="true"
-                className="aspect-[2/3] h-full w-full object-cover"
+                className="h-full w-full object-cover"
                 loading={index === 0 ? "eager" : "lazy"}
                 decoding="async"
                 draggable={false}

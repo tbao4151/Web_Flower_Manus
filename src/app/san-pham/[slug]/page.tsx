@@ -32,7 +32,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
           <Link href="/san-pham" className="flex items-center gap-1 text-sm font-semibold text-primary"><ArrowLeft size={15} /> Tất cả sản phẩm</Link>
         </div>
       </header>
-      <section className="container-cas grid gap-8 py-8 sm:py-12 md:grid-cols-[minmax(0,1.08fr)_minmax(360px,.92fr)] md:items-start">
+      <section className="container-cas grid gap-8 py-8 sm:py-12 md:grid-cols-[minmax(0,.92fr)_minmax(380px,1.08fr)] md:items-start">
         <ProductImageCarousel images={gallery} alt={product.name} />
         <article className="rounded-[28px] border border-border bg-surface p-6 sm:p-9">
           <p className="text-[10px] font-bold uppercase tracking-[.2em] text-primary">{product.type === "bouquet" ? "Bó hoa" : "Giỏ hoa"} · {product.sku}</p>
