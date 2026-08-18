@@ -79,7 +79,7 @@ function apiError(status: number, code: string, message: string, details?: Recor
 async function validateTaxonomyReferences(data: { categoryIds?: string[]; toneIds?: string[]; occasionIds?: string[] }) {
   const supabase = createSupabaseAdminClient();
   const checks = [
-    { ids: data.categoryIds, table: "categories", code: "PRODUCT_CATEGORY_NOT_FOUND", label: "danh mục" },
+    { ids: data.categoryIds, table: "categories", code: "PRODUCT_CATEGORY_NOT_FOUND", label: "loại hoa" },
     { ids: data.toneIds, table: "color_tones", code: "PRODUCT_TONE_NOT_FOUND", label: "tone màu" },
     { ids: data.occasionIds, table: "occasions", code: "PRODUCT_OCCASION_NOT_FOUND", label: "dịp tặng" },
   ] as const;

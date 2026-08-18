@@ -38,3 +38,15 @@ The connected Instagram Business account is `@nfishtt_flower`, display name `Cá
 The Instagram connector returned current post media and captions from the verified account. Clear priced examples include: `Lam tinh` 400 (post https://www.instagram.com/p/DbqTJdTFGng/); `Garden` 380 with caption that lily color can vary by flower batch (https://www.instagram.com/p/Dbc8oEKFCO4/); `Hoa ly` 350 with the same seasonal-color note (https://www.instagram.com/p/Dbc8XX0lAL4/); a blue-lily bouquet with 3–5 lily stems depending on flower size at 370 (https://www.instagram.com/p/Dbc8GJXFHc0/); `Cúp hoa tươi` 370–400 (https://www.instagram.com/p/Dbc7ig5FPxI/); `Lily` 310 (https://www.instagram.com/p/DbSElLSAcaH/); `Một bó hoa, một lần được nhớ đến` 390 (https://www.instagram.com/p/DbKpmHKgcHb/); `Cẩm tú cầu` 450 (https://www.instagram.com/p/DbKovTNgadK/); `Phi yến` 370 (https://www.instagram.com/p/DbFXU4-AZDP/); `Son sắc thuỷ chung` 290 (https://www.instagram.com/p/DbFXEtMgXYe/); and `Cẩm tú cầu quế` with Size M 230, Size L 350, optional graduation/rabbit add-on +30 (https://www.instagram.com/p/Da-sRBdlCyd/). Posts also include products outside the current project scope such as box flowers; those must not be added because CÁ'S HOA currently sells only bouquets and baskets.
 
 The post result includes media URLs and thumbnails from Instagram. These URLs are source references only and should not be used as the long-term production asset source. The Supabase production project has a public `product-images` Storage bucket, but the current product rows still point at seed `unsplash-*` paths and the local storefront uses Unsplash URLs. V2 should either migrate selected verified Instagram thumbnails into Supabase Storage or clearly keep the seed catalog separate from verified product content rather than implying unsupported provenance.
+
+## Canonical catalog taxonomy labels
+
+The customer-facing and Admin business labels are now standardized as follows:
+
+- **Dạng sản phẩm** maps to the technical `product_type` / `product_types` data and currently supports only **Bó hoa** and **Giỏ hoa**.
+- **Loại hoa** maps to the existing technical `categories` and `product_categories` tables. The many-to-many relationship is retained so one product can contain multiple flower types, such as Hoa hồng, Tulip, Baby, or Cẩm chướng.
+- **Tone màu** maps to `color_tones`.
+- **Dịp tặng** maps to `occasions`.
+- Public filter selects use the context-free default label **Tất cả**. The technical `categories` table name and existing row IDs remain unchanged for backward compatibility and data preservation.
+
+No existing taxonomy rows are deleted or renamed by the terminology change; Admin can progressively curate the existing Loại hoa values without breaking product relationships.

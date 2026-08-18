@@ -39,6 +39,8 @@ export type Product = {
   imageItems?: ProductImage[];
   gallery: string[];
   categories: string[];
+  /** Canonical business name for categories; kept alongside categories for compatibility. */
+  flowerTypes?: string[];
   tones: string[];
   occasions: string[];
   featured?: boolean;

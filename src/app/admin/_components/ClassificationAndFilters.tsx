@@ -7,8 +7,8 @@ type Kind = "productTypes" | "categories" | "tones" | "occasions";
 type Item = { id: string; name: string; slug: string; is_active: boolean; display_order: number };
 type Group = { kind: Kind; title: string; description: string };
 const groups: Group[] = [
-  { kind: "productTypes", title: "Loại hoa", description: "Chỉ gồm các loại sản phẩm shop đang kinh doanh; sản phẩm đang dùng loại sẽ được bảo toàn khi ẩn." },
-  { kind: "categories", title: "Danh mục", description: "Gán nhiều danh mục cho một sản phẩm và chỉ hiển thị danh mục active trên storefront." },
+  { kind: "productTypes", title: "Dạng sản phẩm", description: "Chỉ gồm các dạng sản phẩm shop đang kinh doanh: Bó hoa và Giỏ hoa. Sản phẩm đang dùng dạng sẽ được bảo toàn khi ẩn." },
+  { kind: "categories", title: "Loại hoa", description: "Gán nhiều loại hoa cho một sản phẩm; dữ liệu đang dùng sẽ được bảo toàn khi chỉnh sửa hoặc ẩn." },
   { kind: "tones", title: "Tone màu", description: "Quản lý tone màu dùng trong bộ lọc và form sản phẩm." },
   { kind: "occasions", title: "Dịp tặng", description: "Quản lý slug, trạng thái hiển thị và thứ tự dịp tặng." },
 ];

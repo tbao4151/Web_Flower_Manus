@@ -10,6 +10,6 @@ export async function GET() {
     const [products, metadata] = await Promise.all([fetchCatalogProducts(supabase, { publishedOnly: true }), fetchCatalogMetadata(supabase)]);
     return NextResponse.json({ products, metadata }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return NextResponse.json({ error: "Không thể tải danh mục sản phẩm." }, { status: 503 });
+    return NextResponse.json({ error: "Không thể tải danh sách sản phẩm và bộ lọc." }, { status: 503 });
   }
 }

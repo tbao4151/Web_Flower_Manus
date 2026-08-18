@@ -216,7 +216,7 @@ export default function InventoryManager({ inventoryType, title, description, it
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(getApiErrorMessage(result, "Không thể thêm đơn vị kho."));
       setNewUnitName("");
-      toast.success("Đã thêm đơn vị mới vào danh mục.");
+      toast.success("Đã thêm đơn vị mới vào nhóm sản phẩm.");
       await loadUnits();
       if (result.unit?.id) setUnitId(result.unit.id);
     } catch (error) {

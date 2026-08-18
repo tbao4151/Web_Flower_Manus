@@ -3,7 +3,7 @@ import { availabilityStatusFromQuantity, type AvailabilityStatus, type SaleMode 
 import { defaultProductImageCrop, products as fallbackProducts, type Product, type ProductImage, type ProductType } from "@/lib/products";
 
 export type CatalogFilterConfig = { priceMaxVnd: number; priceStepVnd: number };
-export type CatalogMetadata = { productTypes: Array<{ id: string; name: string; slug: string }>; categories: Array<{ id: string; name: string; slug: string }>; tones: Array<{ id: string; name: string; slug: string }>; occasions: Array<{ id: string; name: string; slug: string }>; filterConfig: CatalogFilterConfig };
+export type CatalogMetadata = { productTypes: Array<{ id: string; name: string; slug: string }>; categories: Array<{ id: string; name: string; slug: string }>; flowerTypes: Array<{ id: string; name: string; slug: string }>; tones: Array<{ id: string; name: string; slug: string }>; occasions: Array<{ id: string; name: string; slug: string }>; filterConfig: CatalogFilterConfig };
 
 export type CatalogProductRow = {
   id: string;
@@ -84,6 +84,7 @@ export function mapCatalogProduct(
     imageItems,
     gallery: imageItems.filter((item) => item.id !== coverImage?.id).map((item) => item.src).filter(Boolean),
     categories: taxonomyNames(row.product_categories, "category_id", taxonomies.categories),
+    flowerTypes: taxonomyNames(row.product_categories, "category_id", taxonomies.categories),
     tones: taxonomyNames(row.product_tones, "tone_id", taxonomies.tones),
     occasions: taxonomyNames(row.product_occasions, "occasion_id", taxonomies.occasions),
     featured: row.featured,
@@ -113,6 +114,7 @@ export async function fetchCatalogMetadata(supabase: SupabaseClient): Promise<Ca
   return {
     productTypes: (productTypesResult.data || []) as Array<{ id: string; name: string; slug: string }>,
     categories: (categoryResult.data || []) as Array<{ id: string; name: string; slug: string }>,
+    flowerTypes: (categoryResult.data || []) as Array<{ id: string; name: string; slug: string }>,
     tones: (toneResult.data || []) as Array<{ id: string; name: string; slug: string }>,
     occasions: (occasionResult.data || []) as Array<{ id: string; name: string; slug: string }>,
     filterConfig: { priceMaxVnd, priceStepVnd },

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { createSupabaseAdminClient } from "@/lib/supabase-server";
 
-const kindSchema = z.enum(["productTypes", "categories", "tones", "occasions"]);
+const kindSchema = z.enum(["productTypes", "categories", "flowerTypes", "tones", "occasions"]);
 const inputSchema = z.object({
   kind: kindSchema,
   id: z.string().uuid().optional(),
@@ -12,7 +12,7 @@ const inputSchema = z.object({
   isActive: z.boolean().optional(),
   displayOrder: z.number().int().min(0).max(10000).optional(),
 });
-const tableFor = (kind: z.infer<typeof kindSchema>) => kind === "productTypes" ? "product_types" : kind === "categories" ? "categories" : kind === "tones" ? "color_tones" : "occasions";
+const tableFor = (kind: z.infer<typeof kindSchema>) => kind === "productTypes" ? "product_types" : kind === "categories" || kind === "flowerTypes" ? "categories" : kind === "tones" ? "color_tones" : "occasions";
 
 export async function GET() {
   if (!await requireAdmin()) return NextResponse.json({ error: "Bạn không có quyền thực hiện thao tác này." }, { status: 403 });
@@ -22,7 +22,8 @@ export async function GET() {
     const { data, error } = await supabase.from(tableFor(kind)).select("id, name, slug, is_active, display_order, created_at").order("display_order").order("name");
     return [kind, error ? [] : data] as const;
   }));
-  return NextResponse.json(Object.fromEntries(results));
+  const payload = Object.fromEntries(results);
+  return NextResponse.json({ ...payload, flowerTypes: payload.categories || [] });
 }
 
 export async function POST(request: Request) {
