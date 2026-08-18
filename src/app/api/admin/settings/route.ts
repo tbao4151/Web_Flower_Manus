@@ -5,12 +5,18 @@ import { normalizeSocialUrl } from "@/lib/social";
 import { createSupabaseAdminClient } from "@/lib/supabase-server";
 
 const settingSchema = z.object({
-  key: z.enum(["announcement", "contact", "delivery", "social_widget"]),
+  key: z.enum(["announcement", "contact", "delivery", "social_widget", "catalog_filters"]),
   valueJson: z.record(z.string(), z.unknown()),
   isPublic: z.boolean().default(false),
 });
 
 function normalizeSetting(key: string, value: Record<string, unknown>) {
+  if (key === "catalog_filters") {
+    const priceMaxVnd = Number(value.price_max_vnd);
+    const priceStepVnd = Number(value.price_step_vnd);
+    if (!Number.isInteger(priceMaxVnd) || priceMaxVnd <= 0 || !Number.isInteger(priceStepVnd) || priceStepVnd <= 0 || priceStepVnd > priceMaxVnd) return { valueJson: null, isPublic: true, error: "Giá tối đa và bước nhảy phải là số nguyên dương hợp lệ." };
+    return { valueJson: { price_max_vnd: priceMaxVnd, price_step_vnd: priceStepVnd }, isPublic: true, error: null };
+  }
   if (key !== "social_widget") return { valueJson: value, isPublic: undefined as boolean | undefined, error: null as string | null };
 
   const rawInstagram = typeof value.instagram_url === "string" ? value.instagram_url.trim() : "";

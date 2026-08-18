@@ -1,6 +1,6 @@
 import type { AvailabilityStatus, SaleMode } from "@/lib/inventory";
 
-export type ProductType = "bouquet" | "basket";
+export type ProductType = string;
 
 export type Product = {
   id: string;

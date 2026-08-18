@@ -2,12 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { availabilityStatusFromQuantity, type AvailabilityStatus, type SaleMode } from "@/lib/inventory";
 import { products as fallbackProducts, type Product, type ProductType } from "@/lib/products";
 
+export type CatalogFilterConfig = { priceMaxVnd: number; priceStepVnd: number };
+export type CatalogMetadata = { productTypes: Array<{ id: string; name: string; slug: string }>; categories: Array<{ id: string; name: string; slug: string }>; tones: Array<{ id: string; name: string; slug: string }>; occasions: Array<{ id: string; name: string; slug: string }>; filterConfig: CatalogFilterConfig };
+
 export type CatalogProductRow = {
   id: string;
   sku: string;
   slug: string;
   name: string;
-  product_type: ProductType;
+  product_type: string;
   price_vnd: number;
   sale_price_vnd: number | null;
   description: string | null;
@@ -80,6 +83,26 @@ export function mapCatalogProduct(
     sourceCaption: row.source_caption || "",
     sourceReference: row.source_reference || "",
     sourceDate: row.created_at.slice(0, 10),
+  };
+}
+
+export async function fetchCatalogMetadata(supabase: SupabaseClient): Promise<CatalogMetadata> {
+  const [productTypesResult, categoryResult, toneResult, occasionResult, settingsResult] = await Promise.all([
+    supabase.from("product_types").select("id, name, slug").eq("is_active", true).order("display_order").order("name"),
+    supabase.from("categories").select("id, name, slug").eq("is_active", true).order("display_order").order("name"),
+    supabase.from("color_tones").select("id, name, slug").eq("is_active", true).order("display_order").order("name"),
+    supabase.from("occasions").select("id, name, slug").eq("is_active", true).order("display_order").order("name"),
+    supabase.from("shop_settings").select("value_json").eq("key", "catalog_filters").eq("is_public", true).maybeSingle(),
+  ]);
+  const value = (settingsResult.data?.value_json || {}) as { price_max_vnd?: unknown; price_step_vnd?: unknown };
+  const priceMaxVnd = Number.isInteger(Number(value.price_max_vnd)) && Number(value.price_max_vnd) > 0 ? Number(value.price_max_vnd) : 0;
+  const priceStepVnd = Number.isInteger(Number(value.price_step_vnd)) && Number(value.price_step_vnd) > 0 ? Number(value.price_step_vnd) : 0;
+  return {
+    productTypes: (productTypesResult.data || []) as Array<{ id: string; name: string; slug: string }>,
+    categories: (categoryResult.data || []) as Array<{ id: string; name: string; slug: string }>,
+    tones: (toneResult.data || []) as Array<{ id: string; name: string; slug: string }>,
+    occasions: (occasionResult.data || []) as Array<{ id: string; name: string; slug: string }>,
+    filterConfig: { priceMaxVnd, priceStepVnd },
   };
 }
 

@@ -9,6 +9,7 @@ const links = [
   ["/admin", "Tổng quan"],
   ["/admin/orders", "Đơn hàng"],
   ["/admin/products", "Sản phẩm"],
+  ["/admin/phan-loai-bo-loc", "Phân loại & Bộ lọc"],
   ["/admin/customers", "Khách hàng"],
   ["/admin/deliveries", "Giao hàng"],
   ["/admin/inventory/history", "Lịch sử kho"],
@@ -19,6 +20,7 @@ function isActive(pathname: string, href: string) {
   if (href === "/admin") return pathname === "/admin";
   if (href === "/admin/inventory/history") return pathname === "/admin/inventory/history" || pathname === "/admin/lich-su-kho";
   if (href === "/admin/products") return pathname === "/admin/products" || pathname === "/admin/san-pham" || pathname === "/admin/anh";
+  if (href === "/admin/phan-loai-bo-loc") return pathname === "/admin/phan-loai-bo-loc" || pathname.startsWith("/admin/danh-muc") || pathname.startsWith("/admin/tone-mau") || pathname.startsWith("/admin/dip-tang");
   if (href === "/admin/deliveries") return pathname === "/admin/deliveries" || pathname === "/admin/giao-hang";
   if (href === "/admin/settings") return pathname === "/admin/settings" || pathname === "/admin/cai-dat";
   return pathname === href || pathname.startsWith(`${href}/`);
