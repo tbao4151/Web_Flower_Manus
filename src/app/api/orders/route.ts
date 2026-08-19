@@ -147,23 +147,67 @@ export async function POST(request: Request) {
   }
 }
 
-const lookupSchema = z.object({ orderCode: z.string().trim().toUpperCase().regex(/^CSH-\d{4}-[A-Z0-9]{8}$/), recipientPhone: normalizedPhoneSchema });
+const lookupSchema = z.object({
+  orderCode: z.preprocess(
+    (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+    z.string().trim().toUpperCase().regex(/^(?:CSH-\d{4}-[A-Z0-9]{8}|CSH-\d{6}-\d{4}|CH\d{10})$/).optional(),
+  ),
+  recipientPhone: normalizedPhoneSchema,
+});
+
+const lookupWindowMs = 10 * 60 * 1000;
+const phoneLookupLimit = 10;
+const ipLookupLimit = 60;
+const publicLookupError = "Không có đơn hàng nào khớp với số điện thoại người nhận này, hoặc bạn đã nhập sai số người nhận.";
+
+function hashLookupValue(value: string) {
+  const secret = process.env.AUTH_INTERNAL_EMAIL_SECRET;
+  if (!secret || secret.length < 32) throw new Error("LOOKUP_HASH_SECRET_MISSING");
+  return createHash("sha256").update(`${secret}:${value}`).digest("hex");
+}
+
+function getClientIp(request: Request) {
+  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip")?.trim() || "unknown";
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const parsed = lookupSchema.safeParse({ orderCode: searchParams.get("orderCode"), recipientPhone: searchParams.get("recipientPhone") });
-  if (!parsed.success) return NextResponse.json({ error: "Không tìm thấy đơn hàng phù hợp." }, { status: 404 });
+  const detail = searchParams.get("detail") === "1";
+  const parsed = lookupSchema.safeParse({ orderCode: searchParams.get("orderCode") ?? "", recipientPhone: searchParams.get("recipientPhone") ?? "" });
+  if (!parsed.success || (detail && !parsed.data.orderCode)) {
+    return NextResponse.json({ error: parsed.success ? "Vui lòng nhập mã đơn để xem chi tiết." : "Số điện thoại người nhận phải gồm đúng 10 chữ số." }, { status: 400 });
+  }
+
   try {
     const supabase = createSupabaseAdminClient();
-    const phoneHash = createHash("sha256").update(parsed.data.recipientPhone).digest("hex");
-    const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { count } = await supabase.from("order_lookup_audit").select("id", { count: "exact", head: true }).eq("order_code", parsed.data.orderCode).eq("phone_hash", phoneHash).gte("created_at", since);
-    if ((count ?? 0) >= 10) return NextResponse.json({ error: "Bạn đã thử quá nhiều lần. Vui lòng chờ ít phút rồi thử lại." }, { status: 429 });
-    const { data: order } = await supabase.from("orders").select("order_code, recipient_name, recipient_phone, is_pickup, delivery_method, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, shipping_fee_confirmed, total_vnd, deposit_required_vnd, deposit_paid_vnd, remaining_amount_vnd, payment_status, delivery_status, carrier_name, shipper_name, estimated_delivery_at, status, created_at, order_items(product_name_snapshot, product_sku_snapshot, unit_price_vnd, quantity, line_total_vnd)").eq("order_code", parsed.data.orderCode).eq("recipient_phone", parsed.data.recipientPhone).maybeSingle();
-    await supabase.from("order_lookup_audit").insert({ order_code: parsed.data.orderCode, phone_hash: phoneHash, succeeded: Boolean(order) });
-    if (!order) return NextResponse.json({ error: "Không tìm thấy đơn hàng phù hợp." }, { status: 404 });
-    return NextResponse.json({ order });
-  } catch {
+    const phoneHash = hashLookupValue(parsed.data.recipientPhone);
+    const ipHash = hashLookupValue(getClientIp(request));
+    const since = new Date(Date.now() - lookupWindowMs).toISOString();
+    const [phoneAudit, ipAudit] = await Promise.all([
+      supabase.from("order_lookup_audit").select("id", { count: "exact", head: true }).eq("phone_hash", phoneHash).gte("created_at", since),
+      supabase.from("order_lookup_audit").select("id", { count: "exact", head: true }).eq("ip_hash", ipHash).gte("created_at", since),
+    ]);
+    if ((phoneAudit.count ?? 0) >= phoneLookupLimit || (ipAudit.count ?? 0) >= ipLookupLimit) {
+      return NextResponse.json({ error: "Bạn đã thử quá nhiều lần. Vui lòng chờ ít phút rồi thử lại." }, { status: 429 });
+    }
+
+    if (detail) {
+      const query = supabase.from("orders").select("order_code, recipient_name, recipient_phone, is_pickup, delivery_address, delivery_date, delivery_time, subtotal_vnd, shipping_vnd, shipping_fee_confirmed, total_vnd, deposit_required_vnd, deposit_paid_vnd, remaining_amount_vnd, payment_status, delivery_status, status, created_at, order_items(product_name_snapshot, product_sku_snapshot, unit_price_vnd, quantity, line_total_vnd)").eq("recipient_phone_normalized", parsed.data.recipientPhone).eq("order_code", parsed.data.orderCode as string).maybeSingle();
+      const { data: order, error } = await query;
+      await supabase.from("order_lookup_audit").insert({ order_code: parsed.data.orderCode, phone_hash: phoneHash, ip_hash: ipHash, succeeded: Boolean(order) });
+      if (error) throw error;
+      if (!order) return NextResponse.json({ error: "Không tìm thấy đơn hàng phù hợp." }, { status: 404 });
+      return NextResponse.json({ order });
+    }
+
+    let query = supabase.from("orders").select("order_code, status, total_vnd, created_at").eq("recipient_phone_normalized", parsed.data.recipientPhone).order("created_at", { ascending: false }).limit(50);
+    if (parsed.data.orderCode) query = query.eq("order_code", parsed.data.orderCode);
+    const { data: orders, error } = await query;
+    await supabase.from("order_lookup_audit").insert({ order_code: parsed.data.orderCode ?? "", phone_hash: phoneHash, ip_hash: ipHash, succeeded: Boolean(orders?.length) });
+    if (error) throw error;
+    return NextResponse.json({ orders: orders ?? [], message: orders?.length ? undefined : publicLookupError });
+  } catch (error) {
+    if (error instanceof Error && error.message === "LOOKUP_HASH_SECRET_MISSING") return NextResponse.json({ error: "Không thể tra cứu đơn hàng lúc này." }, { status: 503 });
     return NextResponse.json({ error: "Không thể tra cứu đơn hàng lúc này." }, { status: 503 });
   }
 }
