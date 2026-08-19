@@ -161,7 +161,7 @@ const ipLookupLimit = 60;
 const publicLookupError = "Không có đơn hàng nào khớp với số điện thoại người nhận này, hoặc bạn đã nhập sai số người nhận.";
 
 function hashLookupValue(value: string) {
-  const secret = process.env.AUTH_INTERNAL_EMAIL_SECRET;
+  const secret = process.env.ORDER_LOOKUP_HASH_SECRET;
   if (!secret || secret.length < 32) throw new Error("LOOKUP_HASH_SECRET_MISSING");
   return createHash("sha256").update(`${secret}:${value}`).digest("hex");
 }

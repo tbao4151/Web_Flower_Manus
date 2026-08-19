@@ -1,13 +1,22 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const protectedPaths = ["/tai-khoan", "/staff", "/admin"];
+const protectedPaths = ["/tai-khoan", "/staff", "/admin", "/hoan-tat-ho-so"];
 const privilegedPaths = ["/staff", "/admin"];
 const MANAGEMENT_SESSION_COOKIE = "cas_management_session";
 const MANAGEMENT_INACTIVITY_MS = 30 * 60 * 1000;
 
 function isPath(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function isSafeInternalPath(value: string | null | undefined) {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\u0000-\u001f]/.test(value)) return false;
+  try {
+    return new URL(value, "https://cas-hoa.internal").origin === "https://cas-hoa.internal";
+  } catch {
+    return false;
+  }
 }
 
 function base64UrlToBytes(value: string) {
@@ -21,7 +30,7 @@ async function verifyManagementToken(token: string | undefined, expectedUserId: 
   const [encodedPayload, encodedSignature, ...extra] = token.split(".");
   if (!encodedPayload || !encodedSignature || extra.length) return false;
   try {
-    const secret = process.env.AUTH_INTERNAL_EMAIL_SECRET;
+    const secret = process.env.MANAGEMENT_SESSION_SECRET;
     if (!secret || secret.length < 32) return false;
     const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
     const valid = await crypto.subtle.verify("HMAC", key, base64UrlToBytes(encodedSignature), new TextEncoder().encode(encodedPayload));
@@ -63,17 +72,37 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (user && privilegedPaths.some((path) => isPath(pathname, path))) {
-    const { data: profile } = await supabase.from("profiles").select("role, is_active").eq("id", user.id).maybeSingle();
-    const role = profile?.role;
-    const validRole = role === "staff" || role === "admin";
-    const managementActive = validRole && profile?.is_active === true && await verifyManagementToken(request.cookies.get(MANAGEMENT_SESSION_COOKIE)?.value, user.id, role);
-    if (!managementActive) {
+  if (!user) return response;
+
+  if (needsAuth) {
+    const { data: profile } = await supabase.from("profiles").select("role, phone, is_active").eq("id", user.id).maybeSingle();
+    if (!profile || profile.is_active === false) {
       const loginUrl = request.nextUrl.clone();
       loginUrl.pathname = "/dang-nhap";
       loginUrl.searchParams.set("next", pathname);
-      loginUrl.searchParams.set("reauth", "1");
       return NextResponse.redirect(loginUrl);
+    }
+
+    if (!profile.phone && !isPath(pathname, "/hoan-tat-ho-so")) {
+      const onboardingUrl = request.nextUrl.clone();
+      onboardingUrl.pathname = "/hoan-tat-ho-so";
+      if (isSafeInternalPath(pathname)) onboardingUrl.searchParams.set("next", pathname);
+      return NextResponse.redirect(onboardingUrl);
+    }
+
+    if (isPath(pathname, "/hoan-tat-ho-so")) return response;
+
+    if (privilegedPaths.some((path) => isPath(pathname, path))) {
+      const role = profile.role;
+      const validRole = role === "staff" || role === "admin";
+      const managementActive = validRole && profile.phone && profile.is_active === true && await verifyManagementToken(request.cookies.get(MANAGEMENT_SESSION_COOKIE)?.value, user.id, role);
+      if (!managementActive) {
+        const loginUrl = request.nextUrl.clone();
+        loginUrl.pathname = "/dang-nhap";
+        loginUrl.searchParams.set("next", pathname);
+        loginUrl.searchParams.set("reauth", "1");
+        return NextResponse.redirect(loginUrl);
+      }
     }
   }
 
