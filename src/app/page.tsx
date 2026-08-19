@@ -3,19 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
+  ExternalLink,
   Check,
   ChevronDown,
   ChevronLeft,
-  Copy,
-  ExternalLink,
-
   Leaf,
   Menu,
+  Copy,
+
   Minus,
   Plus,
   Search,
   ShoppingBag,
-  UserRound,
   X,
 } from "lucide-react";
 import { formatVnd, products, type Product, type ProductType } from "@/lib/products";
@@ -60,7 +59,6 @@ export default function Home() {
   const [sort, setSort] = useState<"featured" | "newest" | "low" | "high">("featured");
   const [filters, setFilters] = useState<Filters>({ type: "all", category: "all", tone: "all", occasion: "all", maxPrice: 0 });
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [detail, setDetail] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -104,6 +102,10 @@ export default function Home() {
       // URL state is synchronized intentionally for CTA deep links and browser navigation.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveView(params.get("view") === "catalog" || type === "bouquet" || type === "basket" ? "catalog" : "home");
+      if (params.get("cart") === "1") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setCartOpen(true);
+      }
       if (type === "bouquet" || type === "basket") setFilters((current) => ({ ...current, type }));
     };
     syncCatalogUrl();
@@ -142,8 +144,17 @@ export default function Home() {
   }, [catalogProducts]);
 
   useEffect(() => {
-    if (cartReady) window.localStorage.setItem("cas-hoa-cart", JSON.stringify(cart.map((line) => ({ productId: line.product.id, quantity: line.quantity }))));
+    if (cartReady) {
+      window.localStorage.setItem("cas-hoa-cart", JSON.stringify(cart.map((line) => ({ productId: line.product.id, quantity: line.quantity }))));
+      window.dispatchEvent(new Event("cas-hoa-cart-updated"));
+    }
   }, [cart, cartReady]);
+
+  useEffect(() => {
+    const openCart = () => setCartOpen(true);
+    window.addEventListener("cas-hoa-open-cart", openCart);
+    return () => window.removeEventListener("cas-hoa-open-cart", openCart);
+  }, []);
 
   const allFlowerTypes = Array.from(new Set(catalogProducts.flatMap((product) => product.flowerTypes ?? product.categories))).sort();
   const allTones = Array.from(new Set(catalogProducts.flatMap((product) => product.tones))).sort();
@@ -179,21 +190,21 @@ export default function Home() {
 
   const goCatalog = (type?: "all" | ProductType) => {
     setActiveView("catalog");
-    setMobileNavOpen(false);
     if (type) setFilters((current) => ({ ...current, type }));
     const params = new URLSearchParams(window.location.search);
     params.set("view", "catalog");
     if (type === "bouquet" || type === "basket") params.set("type", type);
     if (type === "all") params.delete("type");
     window.history.pushState({}, "", params.toString() ? `/?${params.toString()}` : "/");
+    window.dispatchEvent(new Event("cas-hoa-location-updated"));
     window.setTimeout(() => document.getElementById("catalog-search")?.focus(), 60);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const goHome = () => {
     setActiveView("home");
-    setMobileNavOpen(false);
     window.history.pushState({}, "", "/");
+    window.dispatchEvent(new Event("cas-hoa-location-updated"));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -294,15 +305,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-background text-foreground">
-      <div className="border-b border-border bg-foreground px-4 py-2 text-center text-[10px] font-bold uppercase tracking-[.16em] text-[#f6eee1] sm:text-[11px]">Có sẵn thiệp và túi · Shop xác nhận đơn sau khi nhận thông tin</div>
-      <header className="sticky top-0 z-30 border-b border-border/80 bg-background/95 backdrop-blur-xl">
-        <div className="container-cas flex h-[68px] items-center justify-between gap-4">
-          <button onClick={goHome} className="flex items-center gap-2.5 text-left" aria-label="Về trang chủ CÁ'S HOA"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-[#fbf8ee]"><Leaf size={18} /></span><span><span className="block font-display text-[21px] leading-none">CÁ&apos;S HOA</span><span className="mt-1 block text-[8px] font-bold uppercase tracking-[.28em] text-muted-foreground">flowers &amp; feelings</span></span></button>
-          <nav className="hidden items-center gap-7 text-sm font-semibold md:flex" aria-label="Điều hướng chính"><button onClick={goHome} className="transition hover:text-primary">Trang chủ</button><button onClick={() => goCatalog("bouquet")} className="transition hover:text-primary">Bó hoa</button><button onClick={() => goCatalog("basket")} className="transition hover:text-primary">Giỏ hoa</button>{instagramProfile && <a href={instagramProfile} target="_blank" rel="noreferrer" className="transition hover:text-primary">Instagram <ExternalLink size={13} className="ml-1 inline" /></a>}</nav>
-          <div className="flex items-center gap-1.5"><button className="flex h-10 w-10 items-center justify-center rounded-full text-foreground hover:bg-surface-muted" aria-label="Tìm kiếm sản phẩm" onClick={() => goCatalog()}><Search size={18} /></button>{currentProfile ? <>{currentProfile.role === "customer" ? <><a href="/tai-khoan" className="hidden h-10 items-center justify-center gap-1 rounded-full px-3 text-sm font-bold text-primary hover:bg-surface-muted sm:flex"><UserRound size={15} /> Tài khoản</a><a href="/tai-khoan/don-hang" className="hidden h-10 items-center justify-center rounded-full px-3 text-sm font-bold text-muted-foreground hover:bg-surface-muted md:flex">Đơn hàng</a></> : currentProfile.role === "admin" ? <a href="/admin" className="hidden h-10 items-center justify-center rounded-full px-3 text-sm font-bold text-primary hover:bg-surface-muted sm:flex">Quản trị</a> : <a href="/staff" className="hidden h-10 items-center justify-center rounded-full px-3 text-sm font-bold text-primary hover:bg-surface-muted sm:flex">Khu vực nhân viên</a>}<button onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.reload(); }} className="hidden h-10 items-center justify-center rounded-full px-3 text-sm font-bold text-muted-foreground hover:bg-surface-muted lg:flex">Đăng xuất</button></> : <><a href="/dang-nhap" className="hidden h-10 items-center justify-center rounded-full px-3 text-sm font-bold text-primary hover:bg-surface-muted sm:flex">Đăng nhập</a><a href="/dang-ky" className="hidden h-10 items-center justify-center rounded-full px-3 text-sm font-bold text-muted-foreground hover:bg-surface-muted md:flex">Đăng ký</a></>}<a href="/tra-cuu-don-hang" className="hidden h-10 items-center justify-center rounded-full px-3 text-sm font-bold text-muted-foreground hover:bg-surface-muted lg:flex">Tra cứu đơn</a><button data-cart-target="true" onClick={() => setCartOpen(true)} className={`relative flex h-10 w-10 items-center justify-center rounded-full bg-surface text-foreground shadow-sm transition hover:bg-surface-muted ${cartPulse ? "scale-110" : ""}`} aria-label={`Giỏ hàng, ${cartCount} sản phẩm`}><ShoppingBag size={18} />{cartCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-white">{cartCount}</span>}</button><button onClick={() => setMobileNavOpen((open) => !open)} className="flex h-10 w-10 items-center justify-center rounded-full text-foreground hover:bg-surface-muted md:hidden" aria-label={mobileNavOpen ? "Đóng menu" : "Mở menu"} aria-expanded={mobileNavOpen}><Menu size={19} /></button></div>
-        </div>
-        {mobileNavOpen && <nav className="border-t border-border bg-background px-4 py-3 md:hidden" aria-label="Điều hướng mobile"><div className="container-cas grid gap-1"><button onClick={goHome} className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Trang chủ</button><button onClick={() => goCatalog("bouquet")} className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Bó hoa</button><button onClick={() => goCatalog("basket")} className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Giỏ hoa</button>{currentProfile ? <>{currentProfile.role === "customer" ? <><a href="/tai-khoan" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Tài khoản</a><a href="/tai-khoan/don-hang" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Đơn hàng của tôi</a></> : currentProfile.role === "admin" ? <a href="/admin" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Quản trị</a> : <a href="/staff" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Khu vực nhân viên</a>}<button onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.reload(); }} className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Đăng xuất</button></> : <><a href="/dang-nhap" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Đăng nhập</a><a href="/dang-ky" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Đăng ký</a></>}<a href="/tra-cuu-don-hang" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Tra cứu đơn</a>{instagramProfile && <a href={instagramProfile} target="_blank" rel="noreferrer" className="rounded-xl px-3 py-3 text-left text-sm font-semibold hover:bg-surface-muted">Instagram của shop</a>}</div></nav>}
-      </header>
       {flyImage && <img aria-hidden="true" src={flyImage.image} alt="" className="pointer-events-none fixed z-[70] rounded-full object-cover shadow-lg" style={{ left: flyImage.left, top: flyImage.top, width: flyImage.size, height: flyImage.size, opacity: flyImage.phase === "end" ? 0.22 : 1, transform: flyImage.phase === "end" ? `translate(${flyImage.dx}px, ${flyImage.dy}px) scale(.35)` : "translate(0, 0) scale(1)", transition: "transform 650ms cubic-bezier(.2,.8,.2,1), opacity 650ms ease" }} />}
 
       {activeView === "home" ? <>

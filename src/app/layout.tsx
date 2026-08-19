@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import FloatingSocialContactWidget from "@/components/FloatingSocialContactWidget";
+import GlobalStorefrontHeader from "@/components/GlobalStorefrontHeader";
 import ToastProvider from "@/components/ToastProvider";
 import StaleNavigationReset from "@/components/StaleNavigationReset";
 
@@ -15,5 +16,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body><StaleNavigationReset /><ToastProvider>{children}</ToastProvider><FloatingSocialContactWidget /></body></html>;
+  return <html lang="vi"><body><StaleNavigationReset /><GlobalStorefrontHeader /><ToastProvider>{children}</ToastProvider><FloatingSocialContactWidget /></body></html>;
 }

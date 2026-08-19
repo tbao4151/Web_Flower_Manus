@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, ShoppingBag } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
 import { notFound } from "next/navigation";
 import ProductImageCarousel from "@/components/ProductImageCarousel";
 import { fetchCatalogProducts } from "@/lib/catalog";
@@ -26,12 +26,6 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   const gallery = [product.image, ...product.gallery].filter(Boolean);
   return (
     <main className="min-h-screen bg-background">
-      <header className="border-b border-border bg-background/95">
-        <div className="container-cas flex h-16 items-center justify-between gap-4">
-          <Link href="/" className="font-display text-2xl">CÁ&apos;S HOA</Link>
-          <Link href="/san-pham" className="flex items-center gap-1 text-sm font-semibold text-primary"><ArrowLeft size={15} /> Tất cả sản phẩm</Link>
-        </div>
-      </header>
       <section className="container-cas grid gap-8 py-8 sm:py-12 md:grid-cols-[minmax(0,.92fr)_minmax(380px,1.08fr)] md:items-start">
         <ProductImageCarousel images={gallery} imageDetails={product.imageItems} alt={product.name} />
         <article className="rounded-[28px] border border-border bg-surface p-6 sm:p-9">
